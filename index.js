@@ -52,8 +52,7 @@ const checkAuth = (req, res, next) => {
     next();
 };
 
-
-// 5. API VÉGPONTOK
+// 5. API VÉGPONTOK ÉS OLDAL KISZOLGÁLÁS
 
 // --- NEM VÉDETT VÉGPONTOK (az Android app számára) ---
 app.post('/api/ping', (req, res) => {
@@ -80,17 +79,15 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
+// --- VÉDETT RÉSZEK ---
 
-// --- MINDEN EZ ALATT MÁR JELSZÓVAL VÉDETT ---
-app.use(checkAuth);
+// Főoldal (index.html) kiszolgálása, jelszóval védve
+app.get('/', checkAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-
-// Statikus fájlok kiszolgálása a 'public' mappából
-app.use(express.static(path.join(__dirname, 'public')));
-
-
-// --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
-app.get('/api/drivers', async (req, res) => {
+// Védett API végpontok a böngésző számára
+app.get('/api/drivers', checkAuth, async (req, res) => {
     const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
     try {
         const result = await pool.query(sql);
@@ -102,7 +99,7 @@ app.get('/api/drivers', async (req, res) => {
     }
 });
 
-app.get('/api/work-sessions', async (req, res) => {
+app.get('/api/work-sessions', checkAuth, async (req, res) => {
     const { driver, startDate, endDate } = req.query;
     let sql = "SELECT * FROM events";
     const params = [];
@@ -160,13 +157,6 @@ app.get('/api/work-sessions', async (req, res) => {
         res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
     }
 });
-
-// --- BIZTONSÁGI HÁLÓ: Ha semmi más nem illeszkedik, küldjük az index.html-t ---
-// JAVÍTVA: A '*' helyett a '/*' a helyes szintaxis
-app.get('/*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 
 // 6. A szerver elindítása
 app.listen(PORT, () => {
