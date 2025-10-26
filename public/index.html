@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haas - Ladezeiten</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2 { color: #333; }
+        .filter-section { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .filter-section label { margin-right: 10px; }
+        .filter-section input, .filter-section select, .filter-section button { padding: 8px; font-size: 14px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+
+    <h1>Ladezeiten-Dashboard</h1>
+
+    <div class="filter-section">
+        <h2>Filter</h2>
+        <label for="driverFilter">Fahrer:</label>
+        <select id="driverFilter"></select>
+
+        <label for="startDate">Von:</label>
+        <input type="date" id="startDate">
+
+        <label for="endDate">Bis:</label>
+        <input type="date" id="endDate">
+
+        <button id="filterButton">Filtern</button>
+        <button id="resetButton">Filter zurücksetzen</button>
+    </div>
+
+    <h2>Abgeschlossene Ladevorgänge</h2>
+    <table id="sessionsTable">
+        <thead>
+            <tr>
+                <th>Fahrername</th>
+                <th>Ankunft</th>
+                <th>Abfahrt</th>
+                <th>Ladezeit</th>
+                <th>Adresse</th>
+            </tr>
+        </thead>
+        <tbody id="sessionsTableBody"></tbody>
+    </table>
+
+    <script>
+        const driverFilter = document.getElementById('driverFilter');
+        const startDate = document.getElementById('startDate');
+        const endDate = document.getElementById('endDate');
+        const filterButton = document.getElementById('filterButton');
+        const resetButton = document.getElementById('resetButton');
+        const tableBody = document.getElementById('sessionsTableBody');
+
+        async function populateDrivers() {
+            try {
+                const response = await fetch('/api/drivers');
+                const drivers = await response.json();
+                driverFilter.innerHTML = '<option value="">Alle Fahrer</option>';
+                drivers.forEach(driver => {
+                    const option = document.createElement('option');
+                    option.value = driver;
+                    option.textContent = driver;
+                    driverFilter.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Fehler beim Laden der Fahrerliste:', error);
+            }
+        }
+
+        async function fetchWorkSessions() {
+            tableBody.innerHTML = '<tr><td colspan="5">Lade Daten...</td></tr>';
+
+            const driver = driverFilter.value;
+            const start = startDate.value;
+            const end = endDate.value;
+
+            let url = '/api/work-sessions?';
+            if (driver) url += `driver=${encodeURIComponent(driver)}&`;
+            if (start) url += `startDate=${start}&`;
+            if (end) url += `endDate=${end}`;
+
+            try {
+                const response = await fetch(url);
+                const sessions = await response.json();
+                tableBody.innerHTML = '';
+
+                if (sessions.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5">Keine abgeschlossenen Ladevorgänge für die ausgewählten Filter gefunden.</td></tr>';
+                    return;
+                }
+
+                sessions.forEach(session => {
+                    const row = document.createElement('tr');
+                    const arrivalDate = new Date(session.arrivalTime).toLocaleString('de-DE');
+                    const departureDate = new Date(session.departureTime).toLocaleString('de-DE');
+
+                    row.innerHTML = `
+                        <td>${session.driverName}</td>
+                        <td>${arrivalDate}</td>
+                        <td>${departureDate}</td>
+                        <td>${session.duration}</td>
+                        <td>${session.address}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+
+            } catch (error) {
+                tableBody.innerHTML = '<tr><td colspan="5">Fehler beim Laden.</td></tr>';
+                console.error('Hiba az adatok lekérésekor:', error);
+            }
+        }
+
+        function resetFilters() {
+            driverFilter.value = '';
+            startDate.value = '';
+            endDate.value = '';
+            fetchWorkSessions();
+        }
+
+        filterButton.addEventListener('click', fetchWorkSessions);
+        resetButton.addEventListener('click', resetFilters);
+
+        // Kezdeti betöltés
+        populateDrivers();
+        fetchWorkSessions();
+
+        // Automatikus frissítés leállítása, mivel a szűrők miatt manuális frissítésre van szükség
+        // setInterval(fetchWorkSessions, 10000);
+    </script>
+
+</body>
+</html>
