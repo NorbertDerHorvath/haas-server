@@ -2,7 +2,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const basicAuth = require('basic-auth');
-const path = require('path'); // EZ AZ ÚJ SOR
+const path = require('path');
 
 // 2. Az Express alkalmazás és a port beállítása
 const app = express();
@@ -40,6 +40,7 @@ createTable();
 // 4. Middleware beállítások
 app.use(express.json());
 
+// Jelszavas védelem middleware
 const checkAuth = (req, res, next) => {
     const ADMIN_USER = process.env.ADMIN_USER || 'admin';
     const ADMIN_PASS = process.env.ADMIN_PASS || 'password';
@@ -51,11 +52,10 @@ const checkAuth = (req, res, next) => {
     next();
 };
 
-// EZ A MÓDOSÍTOTT SOR: Robusztusabb útvonal a public mappához
-app.use(express.static(path.join(__dirname, 'public')));
 
 // 5. API VÉGPONTOK
-// ... (a többi kód változatlan)
+
+// --- NEM VÉDETT VÉGPONTOK (az Android app számára) ---
 app.post('/api/ping', (req, res) => {
     const { deviceId } = req.body;
     if (!deviceId) return res.status(400).send({ message: 'Hiányzó deviceId.' });
@@ -71,8 +71,8 @@ app.post('/api/events', async (req, res) => {
         for (const event of events) {
             const params = [event.deviceId, event.driverName, event.eventType, event.timestamp, event.latitude, event.longitude, event.address];
             await pool.query(insertSql, params);
-            console.log(`Sikeresen elmentve egy új esemény.`);
         }
+        console.log(`Sikeresen elmentve ${events.length} esemény.`);
         res.status(200).send({ message: 'Adatfeldolgozás elindítva' });
     } catch (err) {
         console.error("Hiba az adatbázisba íráskor:", err);
@@ -80,11 +80,19 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-app.get('/api/drivers', checkAuth, async (req, res) => {
+
+// --- MINDEN EZ ALATT MÁR JELSZÓVAL VÉDETT ---
+app.use(checkAuth);
+
+// Statikus fájlok kiszolgálása a 'public' mappából
+app.use(express.static(path.join(__dirname, 'public')));
+
+// --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
+app.get('/api/drivers', async (req, res) => {
     const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
     try {
         const result = await pool.query(sql);
-        const drivers = result.rows.map(r => r.driverName);
+        const drivers = result.rows.map(r => r.drivername); // Figyelem: a pg kisbetűssé teheti
         res.status(200).json(drivers);
     } catch (err) {
         console.error("Hiba a sofőrök lekérdezésekor:", err);
@@ -92,7 +100,7 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
     }
 });
 
-app.get('/api/work-sessions', checkAuth, async (req, res) => {
+app.get('/api/work-sessions', async (req, res) => {
     const { driver, startDate, endDate } = req.query;
     let sql = "SELECT * FROM events";
     const params = [];
@@ -120,13 +128,13 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         const sessions = {};
         const completedWorks = [];
         rows.forEach(event => {
-            if (!sessions[event.deviceId]) {
-                sessions[event.deviceId] = { lastArrival: null };
+            if (!sessions[event.deviceid]) { // Figyelem: a pg kisbetűssé teheti
+                sessions[event.deviceid] = { lastArrival: null };
             }
-            if (event.eventType === 'ARRIVAL') {
-                sessions[event.deviceId].lastArrival = event;
-            } else if (event.eventType === 'DEPARTURE' && sessions[event.deviceId].lastArrival) {
-                const arrival = sessions[event.deviceId].lastArrival;
+            if (event.eventtype === 'ARRIVAL') { // Figyelem: a pg kisbetűssé teheti
+                sessions[event.deviceid].lastArrival = event;
+            } else if (event.eventtype === 'DEPARTURE' && sessions[event.deviceid].lastArrival) {
+                const arrival = sessions[event.deviceid].lastArrival;
                 const departure = event;
                 if (departure.timestamp > arrival.timestamp) {
                     const durationMs = departure.timestamp - arrival.timestamp;
@@ -139,7 +147,7 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                         address: arrival.address || 'N/A'
                     });
                 }
-                sessions[event.deviceId].lastArrival = null;
+                sessions[event.deviceid].lastArrival = null;
             }
         });
         completedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
@@ -149,6 +157,12 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
     }
 });
+
+// --- BIZTONSÁGI HÁLÓ: Ha semmi más nem illeszkedik, küldjük az index.html-t ---
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 
 // 6. A szerver elindítása
 app.listen(PORT, () => {
