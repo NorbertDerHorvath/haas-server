@@ -1,24 +1,21 @@
 // 1. A szükséges csomagok betöltése
 const express = require('express');
-const { Pool } = require('pg'); // SQLite helyett PostgreSQL
-const basicAuth = require('basic-auth'); // Jelszavas védelemhez
+const { Pool } = require('pg');
+const basicAuth = require('basic-auth');
+const path = require('path'); // EZ AZ ÚJ SOR
 
 // 2. Az Express alkalmazás és a port beállítása
 const app = express();
-// A Render.com a PORT környezeti változóból olvassa ki a portot
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3000;
 
 // 3. Adatbázis kapcsolat létrehozása
-// A Pool a kapcsolati adatokat a DATABASE_URL környezeti változóból fogja venni,
-// amit a Render automatikusan beállít.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
-        rejectUnauthorized: false // Szükséges a Render-en a csatlakozáshoz
+        rejectUnauthorized: false
     }
 });
 
-// Adatbázis tábla létrehozása, ha még nem létezik
 const createTable = async () => {
     const createTableQuery = `
         CREATE TABLE IF NOT EXISTS events (
@@ -40,32 +37,25 @@ const createTable = async () => {
 };
 createTable();
 
-
 // 4. Middleware beállítások
 app.use(express.json());
 
-// Jelszavas védelem middleware
 const checkAuth = (req, res, next) => {
-    // A felhasználónevet és jelszót a környezeti változókból olvassuk
     const ADMIN_USER = process.env.ADMIN_USER || 'admin';
     const ADMIN_PASS = process.env.ADMIN_PASS || 'password';
-
     const credentials = basicAuth(req);
-
     if (!credentials || credentials.name !== ADMIN_USER || credentials.pass !== ADMIN_PASS) {
         res.setHeader('WWW-Authenticate', 'Basic realm="Simple Dashboard"');
         return res.status(401).send('Hozzáférés megtagadva');
     }
-    // Ha a jelszó helyes, továbbengedjük a kérést
     next();
 };
 
-// A statikus fájlokat (public mappa) nem védjük le, de az API-t igen
-app.use(express.static('public'));
+// EZ A MÓDOSÍTOTT SOR: Robusztusabb útvonal a public mappához
+app.use(express.static(path.join(__dirname, 'public')));
 
-
-// 5. API VÉGPONTOK (mindegyik a jelszavas védelem mögött)
-
+// 5. API VÉGPONTOK
+// ... (a többi kód változatlan)
 app.post('/api/ping', (req, res) => {
     const { deviceId } = req.body;
     if (!deviceId) return res.status(400).send({ message: 'Hiányzó deviceId.' });
@@ -76,11 +66,8 @@ app.post('/api/ping', (req, res) => {
 app.post('/api/events', async (req, res) => {
     const events = req.body;
     if (!events || !Array.isArray(events)) return res.status(400).send({ message: 'Érvénytelen adatformátum.' });
-
     const insertSql = `INSERT INTO events (deviceId, driverName, eventType, timestamp, latitude, longitude, address) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
-    
     try {
-        // A forEach nem működik jól async operációkkal, ezért for...of ciklust használunk
         for (const event of events) {
             const params = [event.deviceId, event.driverName, event.eventType, event.timestamp, event.latitude, event.longitude, event.address];
             await pool.query(insertSql, params);
@@ -107,12 +94,10 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
 
 app.get('/api/work-sessions', checkAuth, async (req, res) => {
     const { driver, startDate, endDate } = req.query;
-
     let sql = "SELECT * FROM events";
     const params = [];
     const conditions = [];
     let paramIndex = 1;
-
     if (driver) {
         conditions.push(`driverName = $${paramIndex++}`);
         params.push(driver);
@@ -125,34 +110,27 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         conditions.push(`timestamp <= $${paramIndex++}`);
         params.push(new Date(endDate).setHours(23, 59, 59, 999));
     }
-
     if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
     }
     sql += " ORDER BY deviceId, timestamp";
-
     try {
         const result = await pool.query(sql, params);
         const rows = result.rows;
-        
         const sessions = {};
         const completedWorks = [];
-
         rows.forEach(event => {
             if (!sessions[event.deviceId]) {
                 sessions[event.deviceId] = { lastArrival: null };
             }
-
             if (event.eventType === 'ARRIVAL') {
                 sessions[event.deviceId].lastArrival = event;
             } else if (event.eventType === 'DEPARTURE' && sessions[event.deviceId].lastArrival) {
                 const arrival = sessions[event.deviceId].lastArrival;
                 const departure = event;
-
                 if (departure.timestamp > arrival.timestamp) {
                     const durationMs = departure.timestamp - arrival.timestamp;
                     const durationMinutes = Math.round(durationMs / 60000);
-
                     completedWorks.push({
                         driverName: arrival.drivername || 'Ismeretlen',
                         arrivalTime: arrival.timestamp,
@@ -164,10 +142,8 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                 sessions[event.deviceId].lastArrival = null;
             }
         });
-
         completedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
         res.status(200).json(completedWorks);
-
     } catch (err) {
         console.error("Hiba az adatok lekérdezésekor:", err);
         res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
