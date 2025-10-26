@@ -84,15 +84,17 @@ app.post('/api/events', async (req, res) => {
 // --- MINDEN EZ ALATT MÁR JELSZÓVAL VÉDETT ---
 app.use(checkAuth);
 
+
 // Statikus fájlok kiszolgálása a 'public' mappából
 app.use(express.static(path.join(__dirname, 'public')));
+
 
 // --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
 app.get('/api/drivers', async (req, res) => {
     const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
     try {
         const result = await pool.query(sql);
-        const drivers = result.rows.map(r => r.drivername); // Figyelem: a pg kisbetűssé teheti
+        const drivers = result.rows.map(r => r.drivername);
         res.status(200).json(drivers);
     } catch (err) {
         console.error("Hiba a sofőrök lekérdezésekor:", err);
@@ -128,13 +130,14 @@ app.get('/api/work-sessions', async (req, res) => {
         const sessions = {};
         const completedWorks = [];
         rows.forEach(event => {
-            if (!sessions[event.deviceid]) { // Figyelem: a pg kisbetűssé teheti
-                sessions[event.deviceid] = { lastArrival: null };
+            const deviceId = event.deviceid;
+            if (!sessions[deviceId]) {
+                sessions[deviceId] = { lastArrival: null };
             }
-            if (event.eventtype === 'ARRIVAL') { // Figyelem: a pg kisbetűssé teheti
-                sessions[event.deviceid].lastArrival = event;
-            } else if (event.eventtype === 'DEPARTURE' && sessions[event.deviceid].lastArrival) {
-                const arrival = sessions[event.deviceid].lastArrival;
+            if (event.eventtype === 'ARRIVAL') {
+                sessions[deviceId].lastArrival = event;
+            } else if (event.eventtype === 'DEPARTURE' && sessions[deviceId].lastArrival) {
+                const arrival = sessions[deviceId].lastArrival;
                 const departure = event;
                 if (departure.timestamp > arrival.timestamp) {
                     const durationMs = departure.timestamp - arrival.timestamp;
@@ -147,7 +150,7 @@ app.get('/api/work-sessions', async (req, res) => {
                         address: arrival.address || 'N/A'
                     });
                 }
-                sessions[event.deviceid].lastArrival = null;
+                sessions[deviceId].lastArrival = null;
             }
         });
         completedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
@@ -159,7 +162,8 @@ app.get('/api/work-sessions', async (req, res) => {
 });
 
 // --- BIZTONSÁGI HÁLÓ: Ha semmi más nem illeszkedik, küldjük az index.html-t ---
-app.get('*', (req, res) => {
+// JAVÍTVA: A '*' helyett a '/*' a helyes szintaxis
+app.get('/*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
