@@ -52,10 +52,11 @@ const checkAuth = (req, res, next) => {
     next();
 };
 
-// 5. API VÉGPONTOK ÉS OLDAL KISZOLGÁLÁS
+// 5. ÚTVONALAK (ROUTES)
 
 // --- NEM VÉDETT VÉGPONTOK (az Android app számára) ---
 app.post('/api/ping', (req, res) => {
+    // ... (kód változatlan)
     const { deviceId } = req.body;
     if (!deviceId) return res.status(400).send({ message: 'Hiányzó deviceId.' });
     console.log(`---> BEJELENTKEZÉS: ${deviceId} <---`);
@@ -63,6 +64,7 @@ app.post('/api/ping', (req, res) => {
 });
 
 app.post('/api/events', async (req, res) => {
+    // ... (kód változatlan)
     const events = req.body;
     if (!events || !Array.isArray(events)) return res.status(400).send({ message: 'Érvénytelen adatformátum.' });
     const insertSql = `INSERT INTO events (deviceId, driverName, eventType, timestamp, latitude, longitude, address) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
@@ -79,15 +81,11 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-// --- VÉDETT RÉSZEK ---
 
-// Főoldal (index.html) kiszolgálása, jelszóval védve
-app.get('/', checkAuth, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Védett API végpontok a böngésző számára
+// --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
+// A checkAuth middleware csak ezeket az API hívásokat fogja védeni
 app.get('/api/drivers', checkAuth, async (req, res) => {
+    // ... (kód változatlan)
     const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
     try {
         const result = await pool.query(sql);
@@ -100,6 +98,7 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
 });
 
 app.get('/api/work-sessions', checkAuth, async (req, res) => {
+    // ... (kód változatlan)
     const { driver, startDate, endDate } = req.query;
     let sql = "SELECT * FROM events";
     const params = [];
@@ -157,6 +156,13 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
     }
 });
+
+
+// --- STATIKUS FÁJLOK KISZOLGÁLÁSA (a legvégén) ---
+// Ez szolgálja ki az index.html-t és minden mást a public mappából.
+// Ennek a sornak a védett API-k UTÁN kell lennie.
+app.use(express.static(path.join(__dirname, 'public')));
+
 
 // 6. A szerver elindítása
 app.listen(PORT, () => {
