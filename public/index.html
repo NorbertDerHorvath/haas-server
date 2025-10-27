@@ -63,6 +63,7 @@
                 const drivers = await response.json();
                 driverFilter.innerHTML = '<option value="">Alle Fahrer</option>';
                 drivers.forEach(driver => {
+                    if (!driver) return; // Ne jelenítsünk meg üres sofőrnevet
                     const option = document.createElement('option');
                     option.value = driver;
                     option.textContent = driver;
@@ -97,15 +98,17 @@
 
                 sessions.forEach(session => {
                     const row = document.createElement('tr');
-                    const arrivalDate = new Date(session.arrivalTime).toLocaleString('de-DE');
-                    const departureDate = new Date(session.departureTime).toLocaleString('de-DE');
+                    
+                    // JAVÍTVA: Robusztus dátumkezelés
+                    const arrivalDate = session.arrivalTime ? new Date(session.arrivalTime).toLocaleString('de-DE') : 'Ungültig';
+                    const departureDate = session.departureTime ? new Date(session.departureTime).toLocaleString('de-DE') : 'Ungültig';
 
                     row.innerHTML = `
-                        <td>${session.driverName}</td>
+                        <td>${session.driverName || 'N/A'}</td>
                         <td>${arrivalDate}</td>
                         <td>${departureDate}</td>
-                        <td>${session.duration}</td>
-                        <td>${session.address}</td>
+                        <td>${session.duration || 'N/A'}</td>
+                        <td>${session.address || 'N/A'}</td>
                     `;
                     tableBody.appendChild(row);
                 });
@@ -129,9 +132,6 @@
         // Kezdeti betöltés
         populateDrivers();
         fetchWorkSessions();
-
-        // Automatikus frissítés leállítása, mivel a szűrők miatt manuális frissítésre van szükség
-        // setInterval(fetchWorkSessions, 10000);
     </script>
 
 </body>
