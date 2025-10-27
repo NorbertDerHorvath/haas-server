@@ -59,6 +59,17 @@
         .saved {
             background-color: #90EE90 !important; /* Halványzöld */
         }
+
+        /* ÚJ SZABÁLYOK */
+        /* Placeholder szöveg halványítása */
+        ::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
+            color: #aaa;
+            opacity: 1; /* Firefox */
+        }
+        /* Félkövér szöveg, ha van tartalom */
+        input[type="text"]:not(:placeholder-shown) {
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -172,6 +183,7 @@
                     const googleMapsLink = session.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(session.address)}` : '#';
                     const addressDisplay = session.address ? `<a href="${googleMapsLink}" target="_blank">${session.address}</a>` : 'N/A';
 
+                    // MÓDOSÍTVA: Az input mező most már a CSS-re támaszkodik a stílushoz
                     const kundeCell = `
                         <input type="text" placeholder="Kunde eintragen..." data-session-id="${session.sessionId}" value="${session.customerName || ''}">
                         <button data-session-id="${session.sessionId}">Speichern</button>
@@ -194,7 +206,6 @@
             }
         }
 
-        // Mentés gomb eseménykezelője
         tableBody.addEventListener('click', async function(event) {
             if (event.target.tagName === 'BUTTON') {
                 const button = event.target;
@@ -217,6 +228,12 @@
                     if (response.ok) {
                         button.textContent = 'Gespeichert';
                         button.classList.add('saved');
+                        // A beírt szöveg most már félkövér lesz a CSS szabály miatt
+                        if (input.value) {
+                            input.style.fontWeight = 'bold';
+                        } else {
+                            input.style.fontWeight = 'normal';
+                        }
                     } else {
                         throw new Error('Server-Fehler beim Speichern');
                     }
@@ -239,7 +256,6 @@
         filterButton.addEventListener('click', fetchWorkSessions);
         resetButton.addEventListener('click', resetFilters);
 
-        // Kezdeti betöltés
         populateDrivers();
         fetchWorkSessions();
     </script>
