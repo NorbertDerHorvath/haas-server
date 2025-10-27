@@ -23,16 +23,22 @@
             padding: 15px; 
             border-radius: 5px; 
             margin-bottom: 20px; 
+            /* ÚJ: Flexbox a vízszintes elrendezéshez */
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 15px; /* Térköz az elemek között */
+        }
+        .filter-section h2 {
+            width: 100%; /* A "Filter" cím teljes szélességű */
+            margin-bottom: 10px;
         }
         .filter-section label { 
-            margin-right: 10px; 
-            display: block;
-            margin-top: 10px;
+            margin-right: 5px; /* Kisebb margó a címke és a mező között */
         }
         .filter-section input, .filter-section select, .filter-section button { 
             padding: 8px; 
             font-size: 14px; 
-            margin-top: 5px;
         }
         table { 
             border-collapse: collapse; 
@@ -62,6 +68,7 @@
         .saved {
             background-color: #90EE90 !important; /* Halványzöld */
         }
+
         /* Placeholder szöveg halványítása */
         ::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
             color: #aaa;
@@ -97,6 +104,7 @@
 
     <div class="filter-section">
         <h2>Filter</h2>
+        
         <label for="driverFilter">Fahrer:</label>
         <select id="driverFilter"></select>
 
@@ -109,7 +117,6 @@
         <label for="addressSearch">Adresse:</label>
         <input type="text" id="addressSearch" placeholder="Adresse suchen...">
 
-        <br><br>
         <button id="filterButton">Filtern</button>
         <button id="resetButton">Filter zurücksetzen</button>
     </div>
@@ -133,7 +140,7 @@
         const driverFilter = document.getElementById('driverFilter');
         const startDate = document.getElementById('startDate');
         const endDate = document.getElementById('endDate');
-        const addressSearch = document.getElementById('addressSearch'); // ÚJ
+        const addressSearch = document.getElementById('addressSearch');
         const filterButton = document.getElementById('filterButton');
         const resetButton = document.getElementById('resetButton');
         const tableBody = document.getElementById('sessionsTableBody');
@@ -161,13 +168,13 @@
             const driver = driverFilter.value;
             const start = startDate.value;
             const end = endDate.value;
-            const address = addressSearch.value; // ÚJ
+            const address = addressSearch.value;
 
             let url = '/api/work-sessions?';
             if (driver) url += `driver=${encodeURIComponent(driver)}&`;
             if (start) url += `startDate=${start}&`;
             if (end) url += `endDate=${end}&`;
-            if (address) url += `address=${encodeURIComponent(address)}&`; // ÚJ
+            if (address) url += `address=${encodeURIComponent(address)}&`;
 
             try {
                 const response = await fetch(url);
@@ -256,11 +263,9 @@
             driverFilter.value = '';
             startDate.value = '';
             endDate.value = '';
-            addressSearch.value = ''; // ÚJ
+            addressSearch.value = '';
             fetchWorkSessions();
         }
-
-
 
         filterButton.addEventListener('click', fetchWorkSessions);
         resetButton.addEventListener('click', resetFilters);
