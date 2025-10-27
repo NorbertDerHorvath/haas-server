@@ -89,6 +89,10 @@
             try {
                 const response = await fetch(url);
                 const sessions = await response.json();
+                
+                // EZ AZ ÚJ SOR A HIBAKERESÉSHEZ
+                console.log('Received sessions data:', sessions);
+
                 tableBody.innerHTML = '';
 
                 if (sessions.length === 0) {
