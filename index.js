@@ -122,39 +122,80 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         const result = await pool.query(sql, params);
         const rows = result.rows;
 
-        const sessions = {};
-        const completedWorks = [];
-
+        // 1. LÉPÉS: Egyszerű, egyedi munkamenetek létrehozása
+        const initialSessions = [];
+        const sessionsByDevice = {};
         rows.forEach(event => {
             const deviceId = event.deviceid;
-            if (!sessions[deviceId]) {
-                sessions[deviceId] = { lastArrival: null };
+            if (!sessionsByDevice[deviceId]) {
+                sessionsByDevice[deviceId] = { lastArrival: null };
             }
-
             if (event.eventtype === 'ARRIVAL') {
-                sessions[deviceId].lastArrival = event;
-            } else if (event.eventtype === 'DEPARTURE' && sessions[deviceId].lastArrival) {
-                const arrival = sessions[deviceId].lastArrival;
-                const departure = event;
-
-                if (departure.timestamp > arrival.timestamp) {
-                    const durationMs = departure.timestamp - arrival.timestamp;
-                    const durationMinutes = Math.round(durationMs / 60000);
-
-                    completedWorks.push({
+                sessionsByDevice[deviceId].lastArrival = event;
+            } else if (event.eventtype === 'DEPARTURE' && sessionsByDevice[deviceId].lastArrival) {
+                const arrival = sessionsByDevice[deviceId].lastArrival;
+                if (event.timestamp > arrival.timestamp) {
+                    initialSessions.push({
                         driverName: arrival.drivername || 'Ismeretlen',
                         arrivalTime: arrival.timestamp,
-                        departureTime: departure.timestamp,
-                        duration: `${durationMinutes} Minuten`,
+                        departureTime: event.timestamp,
                         address: arrival.address || 'N/A'
                     });
                 }
-                sessions[deviceId].lastArrival = null;
+                sessionsByDevice[deviceId].lastArrival = null;
             }
         });
 
-        completedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
-        res.status(200).json(completedWorks);
+        // 2. LÉPÉS: Összevonás sofőrönként
+        const MINUTE_IN_MS = 60 * 1000;
+        const sessionsByDriver = {};
+        initialSessions.forEach(session => {
+            if (!sessionsByDriver[session.driverName]) {
+                sessionsByDriver[session.driverName] = [];
+            }
+            sessionsByDriver[session.driverName].push(session);
+        });
+
+        let finalMergedWorks = [];
+        for (const driverName in sessionsByDriver) {
+            const driverSessions = sessionsByDriver[driverName].sort((a, b) => a.arrivalTime - b.arrivalTime);
+            if (driverSessions.length === 0) continue;
+
+            let merged = [];
+            let currentSession = { ...driverSessions[0] };
+
+            for (let i = 1; i < driverSessions.length; i++) {
+                const nextSession = driverSessions[i];
+                const gap = nextSession.arrivalTime - currentSession.departureTime;
+
+                if (gap < MINUTE_IN_MS) {
+                    // Összevonás: a jelenlegi session végét kitoljuk a következőével
+                    currentSession.departureTime = nextSession.departureTime;
+                } else {
+                    // A lánc megszakadt, elmentjük az eddigi összevont sessiont
+                    merged.push(currentSession);
+                    // A következő session lesz az új viszonyítási pont
+                    currentSession = { ...nextSession };
+                }
+            }
+            // Az utolsó sessiont is hozzáadjuk
+            merged.push(currentSession);
+            finalMergedWorks = finalMergedWorks.concat(merged);
+        }
+
+        // 3. LÉPÉS: Időtartamok kiszámolása és formázás
+        const formattedWorks = finalMergedWorks.map(session => {
+            const durationMs = session.departureTime - session.arrivalTime;
+            const durationMinutes = Math.round(durationMs / 60000);
+            return {
+                ...session,
+                duration: `${durationMinutes} Minuten`
+            };
+        });
+
+        // 4. LÉPÉS: Végső rendezés
+        formattedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
+        res.status(200).json(formattedWorks);
 
     } catch (err) {
         console.error("Hiba az adatok lekérdezésekor:", err);
