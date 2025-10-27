@@ -99,6 +99,7 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
     const params = [];
     const conditions = [];
     let paramIndex = 1;
+
     if (driver) {
         conditions.push(`driverName = $${paramIndex++}`);
         params.push(driver);
@@ -111,41 +112,98 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         conditions.push(`timestamp <= $${paramIndex++}`);
         params.push(new Date(endDate).setHours(23, 59, 59, 999));
     }
+
     if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
     }
     sql += " ORDER BY deviceId, timestamp";
+
     try {
         const result = await pool.query(sql, params);
         const rows = result.rows;
-        const sessions = {};
+
         const completedWorks = [];
+        const MINUTE_IN_MS = 60 * 1000; // 1 perc milliszekundumban
+
+        // Események csoportosítása eszközazonosító szerint
+        const eventsByDevice = {};
         rows.forEach(event => {
-            const deviceId = event.deviceid;
-            if (!sessions[deviceId]) {
-                sessions[deviceId] = { lastArrival: null };
+            if (!eventsByDevice[event.deviceId]) {
+                eventsByDevice[event.deviceId] = [];
             }
-            if (event.eventtype === 'ARRIVAL') {
-                sessions[deviceId].lastArrival = event;
-            } else if (event.eventtype === 'DEPARTURE' && sessions[deviceId].lastArrival) {
-                const arrival = sessions[deviceId].lastArrival;
-                const departure = event;
-                if (departure.timestamp > arrival.timestamp) {
-                    const durationMs = departure.timestamp - arrival.timestamp;
-                    const durationMinutes = Math.round(durationMs / 60000);
-                    completedWorks.push({
-                        driverName: arrival.drivername || 'Ismeretlen',
-                        arrivalTime: arrival.timestamp,
-                        departureTime: departure.timestamp,
-                        duration: `${durationMinutes} Minuten`, // JAVÍTVA
-                        address: arrival.address || 'N/A'
-                    });
-                }
-                sessions[deviceId].lastArrival = null;
-            }
+            eventsByDevice[event.deviceId].push(event);
         });
+
+        for (const deviceId in eventsByDevice) {
+            const deviceEvents = eventsByDevice[deviceId];
+            let currentMergedSession = null; // Az aktuális (összevont) munkamenet
+
+            for (let i = 0; i < deviceEvents.length; i++) {
+                const event = deviceEvents[i];
+
+                if (event.eventType === 'ARRIVAL') {
+                    if (!currentMergedSession) {
+                        // Új munkamenet kezdete
+                        currentMergedSession = {
+                            firstArrival: event,
+                            lastDeparture: null
+                        };
+                    } else if (currentMergedSession.lastDeparture) {
+                        // Van aktív munkamenet, és volt egy DEPARTURE.
+                        // Ellenőrizzük, hogy ez az ARRIVAL összevonható-e az előző DEPARTURE-rel.
+                        const gap = event.timestamp - currentMergedSession.lastDeparture.timestamp;
+
+                        if (gap < MINUTE_IN_MS) {
+                            // Az ARRIVAL kevesebb mint 1 perccel az előző DEPARTURE után van.
+                            // Ez a munkamenet folytatása.
+                            currentMergedSession.lastDeparture = null; // Reseteljük, mert most megint "megálltunk"
+                        } else {
+                            // A rés túl nagy, az előző munkamenet lezárult.
+                            // Hozzáadjuk a befejezett munkákhoz, ha van érvényes DEPARTURE.
+                            if (currentMergedSession.lastDeparture.timestamp > currentMergedSession.firstArrival.timestamp) {
+                                const durationMs = currentMergedSession.lastDeparture.timestamp - currentMergedSession.firstArrival.timestamp;
+                                const durationMinutes = Math.round(durationMs / MINUTE_IN_MS);
+                                completedWorks.push({
+                                    driverName: currentMergedSession.firstArrival.drivername || 'Ismeretlen',
+                                    arrivalTime: currentMergedSession.firstArrival.timestamp,
+                                    departureTime: currentMergedSession.lastDeparture.timestamp,
+                                    duration: `${durationMinutes} Minuten`,
+                                    address: currentMergedSession.firstArrival.address || 'N/A'
+                                });
+                            }
+                            // Új munkamenet kezdete
+                            currentMergedSession = {
+                                firstArrival: event,
+                                lastDeparture: null
+                            };
+                        }
+                    }
+                    // Ha currentMergedSession.lastDeparture === null, akkor már egy ARRIVAL fázisban vagyunk,
+                    // ez az ARRIVAL csak megerősíti a megállást, nem indít újat.
+                } else if (event.eventType === 'DEPARTURE' && currentMergedSession) {
+                    // Aktív munkamenetben frissítjük az utolsó DEPARTURE eseményt.
+                    currentMergedSession.lastDeparture = event;
+                }
+            }
+
+            // A ciklus végén lezárjuk az esetlegesen még nyitott munkamenetet
+            if (currentMergedSession && currentMergedSession.lastDeparture &&
+                currentMergedSession.lastDeparture.timestamp > currentMergedSession.firstArrival.timestamp) {
+                const durationMs = currentMergedSession.lastDeparture.timestamp - currentMergedSession.firstArrival.timestamp;
+                const durationMinutes = Math.round(durationMs / MINUTE_IN_MS);
+                completedWorks.push({
+                    driverName: currentMergedSession.firstArrival.drivername || 'Ismeretlen',
+                    arrivalTime: currentMergedSession.firstArrival.timestamp,
+                    departureTime: currentMergedSession.lastDeparture.timestamp,
+                    duration: `${durationMinutes} Minuten`,
+                    address: currentMergedSession.firstArrival.address || 'N/A'
+                });
+            }
+        }
+
         completedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
         res.status(200).json(completedWorks);
+
     } catch (err) {
         console.error("Hiba az adatok lekérdezésekor:", err);
         res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
