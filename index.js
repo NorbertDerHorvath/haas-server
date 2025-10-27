@@ -123,7 +123,7 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         const rows = result.rows;
 
         const completedWorks = [];
-        const MINUTE_IN_MS = 60 * 1000;
+        const MINUTE_IN_MS = 60 * 1000; // 1 perc milliszekundumban
 
         const eventsByDevice = {};
         rows.forEach(event => {
@@ -135,43 +135,71 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
 
         for (const deviceId in eventsByDevice) {
             const deviceEvents = eventsByDevice[deviceId];
-            let sessionStartEvent = null;
+            let currentSession = null; // { firstArrival: event, lastDeparture: event }
 
             for (let i = 0; i < deviceEvents.length; i++) {
                 const event = deviceEvents[i];
 
                 if (event.eventtype === 'ARRIVAL') {
-                    if (!sessionStartEvent) {
-                        sessionStartEvent = event;
-                    }
-                } else if (event.eventtype === 'DEPARTURE' && sessionStartEvent) {
-                    const nextEvent = (i + 1 < deviceEvents.length) ? deviceEvents[i + 1] : null;
+                    if (!currentSession) {
+                        // Új munkamenet kezdete
+                        currentSession = {
+                            firstArrival: event,
+                            lastDeparture: null,
+                            address: event.address // Az első érkezés címe
+                        };
+                    } else if (currentSession.lastDeparture) {
+                        // Van aktív munkamenet, és volt egy DEPARTURE.
+                        // Ellenőrizzük, hogy ez az ARRIVAL összevonható-e az előző DEPARTURE-rel.
+                        const gap = event.timestamp - currentSession.lastDeparture.timestamp;
 
-                    // Akkor zárjuk le a session-t, ha:
-                    // 1. Ez az utolsó esemény.
-                    // 2. A következő esemény nem ARRIVAL.
-                    // 3. A következő esemény ARRIVAL, de több mint 1 percre van.
-                    if (!nextEvent || nextEvent.eventtype !== 'ARRIVAL' || (nextEvent.timestamp - event.timestamp) >= MINUTE_IN_MS) {
-                        
-                        if (event.timestamp > sessionStartEvent.timestamp) {
-                            const durationMs = event.timestamp - sessionStartEvent.timestamp;
-                            const durationMinutes = Math.round(durationMs / 60000);
-
-                            completedWorks.push({
-                                driverName: sessionStartEvent.drivername || 'Ismeretlen',
-                                arrivalTime: sessionStartEvent.timestamp,
-                                departureTime: event.timestamp,
-                                duration: `${durationMinutes} Minuten`,
-                                address: sessionStartEvent.address || 'N/A'
-                            });
+                        if (gap < MINUTE_IN_MS) {
+                            // Az ARRIVAL kevesebb mint 1 perccel az előző DEPARTURE után van.
+                            // Ez a munkamenet folytatása.
+                            currentSession.lastDeparture = null; // Reseteljük, mert most megint "megálltunk"
+                            // Az address marad az első ARRIVAL címe
+                        } else {
+                            // A rés túl nagy, az előző munkamenet lezárult.
+                            // Hozzáadjuk a befejezett munkákhoz, ha van érvényes DEPARTURE.
+                            if (currentSession.lastDeparture.timestamp > currentSession.firstArrival.timestamp) {
+                                const durationMs = currentSession.lastDeparture.timestamp - currentSession.firstArrival.timestamp;
+                                const durationMinutes = Math.round(durationMs / MINUTE_IN_MS);
+                                completedWorks.push({
+                                    driverName: currentSession.firstArrival.drivername || 'Ismeretlen',
+                                    arrivalTime: currentSession.firstArrival.timestamp,
+                                    departureTime: currentSession.lastDeparture.timestamp,
+                                    duration: `${durationMinutes} Minuten`,
+                                    address: currentSession.address || 'N/A'
+                                });
+                            }
+                            // Új munkamenet kezdete
+                            currentSession = {
+                                firstArrival: event,
+                                lastDeparture: null,
+                                address: event.address
+                            };
                         }
-                        // A session lezárult, a következő ARRIVAL újat indít.
-                        sessionStartEvent = null;
                     }
-                    // Ha a feltételek nem teljesülnek (azaz rövid az út a következő megállóig),
-                    // egyszerűen nem csinálunk semmit, a sessionStartEvent aktív marad,
-                    // és a ciklus megy tovább.
+                    // Ha currentSession létezik, de lastDeparture === null, akkor már egy ARRIVAL fázisban vagyunk,
+                    // ez az ARRIVAL csak megerősíti a megállást, nem indít újat.
+                } else if (event.eventtype === 'DEPARTURE' && currentSession) {
+                    // Aktív munkamenetben frissítjük az utolsó DEPARTURE eseményt.
+                    currentSession.lastDeparture = event;
                 }
+            }
+
+            // A ciklus végén lezárjuk az esetlegesen még nyitott munkamenetet
+            if (currentSession && currentSession.lastDeparture &&
+                currentSession.lastDeparture.timestamp > currentSession.firstArrival.timestamp) {
+                const durationMs = currentSession.lastDeparture.timestamp - currentSession.firstArrival.timestamp;
+                const durationMinutes = Math.round(durationMs / MINUTE_IN_MS);
+                completedWorks.push({
+                    driverName: currentSession.firstArrival.drivername || 'Ismeretlen',
+                    arrivalTime: currentSession.firstArrival.timestamp,
+                    departureTime: currentSession.lastDeparture.timestamp,
+                    duration: `${durationMinutes} Minuten`,
+                    address: currentSession.address || 'N/A'
+                });
             }
         }
 
