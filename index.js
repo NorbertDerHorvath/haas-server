@@ -129,7 +129,8 @@ app.post('/api/customer', checkAuth, async (req, res) => {
 
 
 app.get('/api/work-sessions', checkAuth, async (req, res) => {
-    const { driver, startDate, endDate } = req.query;
+    const { driver, startDate, endDate, address } = req.query; // ÚJ
+    
     let sql = "SELECT * FROM events";
     const params = [];
     const conditions = [];
@@ -146,6 +147,11 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
     if (endDate) {
         conditions.push(`timestamp <= $${paramIndex++}`);
         params.push(new Date(endDate).setHours(23, 59, 59, 999));
+    }
+    // ÚJ: Címkeresés feltétele
+    if (address) {
+        conditions.push(`address ILIKE $${paramIndex++}`); // ILIKE a kis- és nagybetű érzéketlen kereséshez
+        params.push(`%${address}%`); // % wildcards a részleges egyezéshez
     }
 
     if (conditions.length > 0) {

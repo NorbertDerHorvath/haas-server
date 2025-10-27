@@ -26,10 +26,13 @@
         }
         .filter-section label { 
             margin-right: 10px; 
+            display: block;
+            margin-top: 10px;
         }
         .filter-section input, .filter-section select, .filter-section button { 
             padding: 8px; 
             font-size: 14px; 
+            margin-top: 5px;
         }
         table { 
             border-collapse: collapse; 
@@ -59,8 +62,6 @@
         .saved {
             background-color: #90EE90 !important; /* Halványzöld */
         }
-
-        /* ÚJ SZABÁLYOK */
         /* Placeholder szöveg halványítása */
         ::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
             color: #aaa;
@@ -104,7 +105,11 @@
 
         <label for="endDate">Bis:</label>
         <input type="date" id="endDate">
+        
+        <label for="addressSearch">Adresse:</label>
+        <input type="text" id="addressSearch" placeholder="Adresse suchen...">
 
+        <br><br>
         <button id="filterButton">Filtern</button>
         <button id="resetButton">Filter zurücksetzen</button>
     </div>
@@ -128,6 +133,7 @@
         const driverFilter = document.getElementById('driverFilter');
         const startDate = document.getElementById('startDate');
         const endDate = document.getElementById('endDate');
+        const addressSearch = document.getElementById('addressSearch'); // ÚJ
         const filterButton = document.getElementById('filterButton');
         const resetButton = document.getElementById('resetButton');
         const tableBody = document.getElementById('sessionsTableBody');
@@ -155,11 +161,13 @@
             const driver = driverFilter.value;
             const start = startDate.value;
             const end = endDate.value;
+            const address = addressSearch.value; // ÚJ
 
             let url = '/api/work-sessions?';
             if (driver) url += `driver=${encodeURIComponent(driver)}&`;
             if (start) url += `startDate=${start}&`;
-            if (end) url += `endDate=${end}`;
+            if (end) url += `endDate=${end}&`;
+            if (address) url += `address=${encodeURIComponent(address)}&`; // ÚJ
 
             try {
                 const response = await fetch(url);
@@ -183,7 +191,6 @@
                     const googleMapsLink = session.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(session.address)}` : '#';
                     const addressDisplay = session.address ? `<a href="${googleMapsLink}" target="_blank">${session.address}</a>` : 'N/A';
 
-                    // MÓDOSÍTVA: Az input mező most már a CSS-re támaszkodik a stílushoz
                     const kundeCell = `
                         <input type="text" placeholder="Kunde eintragen..." data-session-id="${session.sessionId}" value="${session.customerName || ''}">
                         <button data-session-id="${session.sessionId}">Speichern</button>
@@ -228,7 +235,6 @@
                     if (response.ok) {
                         button.textContent = 'Gespeichert';
                         button.classList.add('saved');
-                        // A beírt szöveg most már félkövér lesz a CSS szabály miatt
                         if (input.value) {
                             input.style.fontWeight = 'bold';
                         } else {
@@ -250,8 +256,11 @@
             driverFilter.value = '';
             startDate.value = '';
             endDate.value = '';
+            addressSearch.value = ''; // ÚJ
             fetchWorkSessions();
         }
+
+
 
         filterButton.addEventListener('click', fetchWorkSessions);
         resetButton.addEventListener('click', resetFilters);
