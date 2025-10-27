@@ -63,7 +63,7 @@
                 const drivers = await response.json();
                 driverFilter.innerHTML = '<option value="">Alle Fahrer</option>';
                 drivers.forEach(driver => {
-                    if (!driver) return; // Ne jelenítsünk meg üres sofőrnevet
+                    if (!driver) return;
                     const option = document.createElement('option');
                     option.value = driver;
                     option.textContent = driver;
@@ -89,10 +89,6 @@
             try {
                 const response = await fetch(url);
                 const sessions = await response.json();
-                
-                // EZ AZ ÚJ SOR A HIBAKERESÉSHEZ
-                console.log('Received sessions data:', sessions);
-
                 tableBody.innerHTML = '';
 
                 if (sessions.length === 0) {
@@ -103,9 +99,12 @@
                 sessions.forEach(session => {
                     const row = document.createElement('tr');
                     
-                    // JAVÍTVA: Robusztus dátumkezelés
-                    const arrivalDate = session.arrivalTime ? new Date(session.arrivalTime).toLocaleString('de-DE') : 'Ungültig';
-                    const departureDate = session.departureTime ? new Date(session.departureTime).toLocaleString('de-DE') : 'Ungültig';
+                    // JAVÍTVA: A szöveges időbélyeget számmá alakítjuk
+                    const arrivalTimestamp = parseInt(session.arrivalTime, 10);
+                    const departureTimestamp = parseInt(session.departureTime, 10);
+
+                    const arrivalDate = arrivalTimestamp ? new Date(arrivalTimestamp).toLocaleString('de-DE') : 'Ungültig';
+                    const departureDate = departureTimestamp ? new Date(departureTimestamp).toLocaleString('de-DE') : 'Ungültig';
 
                     row.innerHTML = `
                         <td>${session.driverName || 'N/A'}</td>
