@@ -146,7 +146,8 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                         // Új munkamenet kezdete
                         currentMergedSession = {
                             firstArrival: event,
-                            lastDeparture: null
+                            lastDeparture: null,
+                            address: event.address // Az első érkezés címe
                         };
                     } else if (currentMergedSession.lastDeparture) {
                         // Van aktív munkamenet, és volt egy DEPARTURE.
@@ -157,6 +158,7 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                             // Az ARRIVAL kevesebb mint 1 perccel az előző DEPARTURE után van.
                             // Ez a munkamenet folytatása.
                             currentMergedSession.lastDeparture = null; // Reseteljük, mert most megint "megálltunk"
+                            // Az address marad az első ARRIVAL címe
                         } else {
                             // A rés túl nagy, az előző munkamenet lezárult.
                             // Hozzáadjuk a befejezett munkákhoz, ha van érvényes DEPARTURE.
@@ -168,17 +170,18 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                                     arrivalTime: currentMergedSession.firstArrival.timestamp,
                                     departureTime: currentMergedSession.lastDeparture.timestamp,
                                     duration: `${durationMinutes} Minuten`,
-                                    address: currentMergedSession.firstArrival.address || 'N/A'
+                                    address: currentMergedSession.address || 'N/A'
                                 });
                             }
                             // Új munkamenet kezdete
                             currentMergedSession = {
                                 firstArrival: event,
-                                lastDeparture: null
+                                lastDeparture: null,
+                                address: event.address
                             };
                         }
                     }
-                    // Ha currentMergedSession.lastDeparture === null, akkor már egy ARRIVAL fázisban vagyunk,
+                    // Ha currentMergedSession létezik, de lastDeparture === null, akkor már egy ARRIVAL fázisban vagyunk,
                     // ez az ARRIVAL csak megerősíti a megállást, nem indít újat.
                 } else if (event.eventType === 'DEPARTURE' && currentMergedSession) {
                     // Aktív munkamenetben frissítjük az utolsó DEPARTURE eseményt.
@@ -196,7 +199,7 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                     arrivalTime: currentMergedSession.firstArrival.timestamp,
                     departureTime: currentMergedSession.lastDeparture.timestamp,
                     duration: `${durationMinutes} Minuten`,
-                    address: currentMergedSession.firstArrival.address || 'N/A'
+                    address: currentMergedSession.address || 'N/A'
                 });
             }
         }
