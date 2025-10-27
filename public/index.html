@@ -99,19 +99,22 @@
                 sessions.forEach(session => {
                     const row = document.createElement('tr');
                     
-                    // JAVÍTVA: A szöveges időbélyeget számmá alakítjuk
                     const arrivalTimestamp = parseInt(session.arrivalTime, 10);
                     const departureTimestamp = parseInt(session.departureTime, 10);
 
                     const arrivalDate = arrivalTimestamp ? new Date(arrivalTimestamp).toLocaleString('de-DE') : 'Ungültig';
                     const departureDate = departureTimestamp ? new Date(departureTimestamp).toLocaleString('de-DE') : 'Ungültig';
 
+                    // Google Maps link létrehozása
+                    const googleMapsLink = session.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(session.address)}` : '#';
+                    const addressDisplay = session.address ? `<a href="${googleMapsLink}" target="_blank">${session.address}</a>` : 'N/A';
+
                     row.innerHTML = `
                         <td>${session.driverName || 'N/A'}</td>
                         <td>${arrivalDate}</td>
                         <td>${departureDate}</td>
                         <td>${session.duration || 'N/A'}</td>
-                        <td>${session.address || 'N/A'}</td>
+                        <td>${addressDisplay}</td>
                     `;
                     tableBody.appendChild(row);
                 });
