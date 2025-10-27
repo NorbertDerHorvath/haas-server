@@ -16,26 +16,42 @@ const pool = new Pool({
     }
 });
 
-const createTable = async () => {
-    const createTableQuery = `
-        CREATE TABLE IF NOT EXISTS events (
-            id SERIAL PRIMARY KEY,
-            deviceId TEXT NOT NULL,
-            driverName TEXT,
-            eventType TEXT NOT NULL,
-            timestamp BIGINT NOT NULL,
-            latitude REAL NOT NULL,
-            longitude REAL NOT NULL,
-            address TEXT
-        );`;
+// Adatbázis séma frissítése és tábla létrehozása
+const setupDatabase = async () => {
+    const client = await pool.connect();
     try {
-        await pool.query(createTableQuery);
+        // Tábla létrehozása, ha nem létezik
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS events (
+                id SERIAL PRIMARY KEY,
+                deviceId TEXT NOT NULL,
+                driverName TEXT,
+                eventType TEXT NOT NULL,
+                timestamp BIGINT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                address TEXT
+            );
+        `);
         console.log("Az 'events' tábla készen áll.");
+
+        // Új 'customer_name' oszlop hozzáadása, ha még nem létezik
+        const columns = await client.query(`
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='events' AND column_name='customer_name';
+        `);
+        if (columns.rows.length === 0) {
+            await client.query('ALTER TABLE events ADD COLUMN customer_name TEXT;');
+            console.log("A 'customer_name' oszlop sikeresen hozzáadva.");
+        }
     } catch (err) {
-        console.error("Hiba az 'events' tábla létrehozásakor:", err);
+        console.error("Hiba az adatbázis beállításakor:", err);
+    } finally {
+        client.release();
     }
 };
-createTable();
+setupDatabase();
+
 
 // 4. Middleware beállítások
 app.use(express.json());
@@ -93,6 +109,25 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
     }
 });
 
+// ÚJ VÉGPONT az ügyfélnév mentéséhez
+app.post('/api/customer', checkAuth, async (req, res) => {
+    const { sessionId, customerName } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).send({ message: 'Hiányzó session ID.' });
+    }
+
+    const sql = `UPDATE events SET customer_name = $1 WHERE id = $2`;
+    try {
+        await pool.query(sql, [customerName, sessionId]);
+        res.status(200).send({ message: 'Ügyfél sikeresen mentve.' });
+    } catch (err) {
+        console.error("Hiba az ügyfél mentésekor:", err);
+        res.status(500).send({ message: 'Szerverhiba az ügyfél mentésekor.' });
+    }
+});
+
+
 app.get('/api/work-sessions', checkAuth, async (req, res) => {
     const { driver, startDate, endDate } = req.query;
     let sql = "SELECT * FROM events";
@@ -122,7 +157,6 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         const result = await pool.query(sql, params);
         const rows = result.rows;
 
-        // 1. LÉPÉS: Egyszerű, egyedi munkamenetek létrehozása
         const initialSessions = [];
         const sessionsByDevice = {};
         rows.forEach(event => {
@@ -136,17 +170,18 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                 const arrival = sessionsByDevice[deviceId].lastArrival;
                 if (event.timestamp > arrival.timestamp) {
                     initialSessions.push({
+                        sessionId: arrival.id, // Munkamenet azonosító
                         driverName: arrival.drivername || 'Ismeretlen',
                         arrivalTime: arrival.timestamp,
                         departureTime: event.timestamp,
-                        address: arrival.address || 'N/A'
+                        address: arrival.address || 'N/A',
+                        customerName: arrival.customer_name || '' // Ügyfél nevének betöltése
                     });
                 }
                 sessionsByDevice[deviceId].lastArrival = null;
             }
         });
 
-        // 2. LÉPÉS: Összevonás sofőrönként
         const MINUTE_IN_MS = 60 * 1000;
         const sessionsByDriver = {};
         initialSessions.forEach(session => {
@@ -169,21 +204,16 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                 const gap = nextSession.arrivalTime - currentSession.departureTime;
 
                 if (gap < MINUTE_IN_MS) {
-                    // Összevonás: a jelenlegi session végét kitoljuk a következőével
                     currentSession.departureTime = nextSession.departureTime;
                 } else {
-                    // A lánc megszakadt, elmentjük az eddigi összevont sessiont
                     merged.push(currentSession);
-                    // A következő session lesz az új viszonyítási pont
                     currentSession = { ...nextSession };
                 }
             }
-            // Az utolsó sessiont is hozzáadjuk
             merged.push(currentSession);
             finalMergedWorks = finalMergedWorks.concat(merged);
         }
 
-        // 3. LÉPÉS: Időtartamok kiszámolása és formázás
         const formattedWorks = finalMergedWorks.map(session => {
             const durationMs = session.departureTime - session.arrivalTime;
             const durationMinutes = Math.round(durationMs / 60000);
@@ -193,7 +223,6 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
             };
         });
 
-        // 4. LÉPÉS: Végső rendezés
         formattedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
         res.status(200).json(formattedWorks);
 

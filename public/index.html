@@ -56,6 +56,9 @@
             padding: 5px 10px;
             margin-left: 5px;
         }
+        .saved {
+            background-color: #90EE90 !important; /* Halványzöld */
+        }
     </style>
 </head>
 <body>
@@ -169,10 +172,9 @@
                     const googleMapsLink = session.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(session.address)}` : '#';
                     const addressDisplay = session.address ? `<a href="${googleMapsLink}" target="_blank">${session.address}</a>` : 'N/A';
 
-                    // Az új "Kunde" mező
                     const kundeCell = `
-                        <input type="text" placeholder="Kunde eintragen..." data-session-id="${arrivalTimestamp}">
-                        <button data-session-id="${arrivalTimestamp}">Speichern</button>
+                        <input type="text" placeholder="Kunde eintragen..." data-session-id="${session.sessionId}" value="${session.customerName || ''}">
+                        <button data-session-id="${session.sessionId}">Speichern</button>
                     `;
 
                     row.innerHTML = `
@@ -192,13 +194,38 @@
             }
         }
 
-        // A mentés gomb eseménykezelője (még nem csinál semmit)
-        tableBody.addEventListener('click', function(event) {
+        // Mentés gomb eseménykezelője
+        tableBody.addEventListener('click', async function(event) {
             if (event.target.tagName === 'BUTTON') {
-                const sessionId = event.target.getAttribute('data-session-id');
+                const button = event.target;
+                const sessionId = button.getAttribute('data-session-id');
                 const input = tableBody.querySelector(`input[data-session-id="${sessionId}"]`);
-                const kundeName = input.value;
-                alert(`Mentés funkció még nincs implementálva.\nSession ID: ${sessionId}\nKunde: ${kundeName}`);
+                const customerName = input.value;
+
+                button.textContent = 'Speichere...';
+                button.disabled = true;
+
+                try {
+                    const response = await fetch('/api/customer', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ sessionId, customerName }),
+                    });
+
+                    if (response.ok) {
+                        button.textContent = 'Gespeichert';
+                        button.classList.add('saved');
+                    } else {
+                        throw new Error('Server-Fehler beim Speichern');
+                    }
+                } catch (error) {
+                    console.error('Fehler beim Speichern des Kunden:', error);
+                    alert('Speichern fehlgeschlagen!');
+                    button.textContent = 'Speichern';
+                    button.disabled = false;
+                }
             }
         });
 
