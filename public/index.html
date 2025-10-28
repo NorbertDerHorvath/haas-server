@@ -18,23 +18,45 @@
             top: 20px;
             right: 20px;
         }
+        .tab-container {
+            display: flex;
+            border-bottom: 2px solid #ccc;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            font-size: 16px;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-button.active {
+            border-bottom: 3px solid #00A693;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
         .filter-section { 
             background-color: #f9f9f9; 
             padding: 15px; 
             border-radius: 5px; 
             margin-bottom: 20px; 
-            /* ÚJ: Flexbox a vízszintes elrendezéshez */
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 15px; /* Térköz az elemek között */
+            gap: 15px;
         }
         .filter-section h2 {
-            width: 100%; /* A "Filter" cím teljes szélességű */
+            width: 100%;
             margin-bottom: 10px;
         }
         .filter-section label { 
-            margin-right: 5px; /* Kisebb margó a címke és a mező között */
+            margin-right: 5px;
         }
         .filter-section input, .filter-section select, .filter-section button { 
             padding: 8px; 
@@ -66,15 +88,12 @@
             margin-left: 5px;
         }
         .saved {
-            background-color: #90EE90 !important; /* Halványzöld */
+            background-color: #90EE90 !important;
         }
-
-        /* Placeholder szöveg halványítása */
-        ::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
+        ::placeholder {
             color: #aaa;
-            opacity: 1; /* Firefox */
+            opacity: 1;
         }
-        /* Félkövér szöveg, ha van tartalom */
         input[type="text"]:not(:placeholder-shown) {
             font-weight: bold;
         }
@@ -102,41 +121,72 @@
 
     <h1>Ladezeiten-Dashboard</h1>
 
-    <div class="filter-section">
-        <h2>Filter</h2>
-        
-        <label for="driverFilter">Fahrer:</label>
-        <select id="driverFilter"></select>
-
-        <label for="startDate">Von:</label>
-        <input type="date" id="startDate">
-
-        <label for="endDate">Bis:</label>
-        <input type="date" id="endDate">
-        
-        <label for="addressSearch">Adresse:</label>
-        <input type="text" id="addressSearch" placeholder="Adresse suchen...">
-
-        <button id="filterButton">Filtern</button>
-        <button id="resetButton">Filter zurücksetzen</button>
+    <div class="tab-container">
+        <button class="tab-button active" onclick="openTab(event, 'ladezeiten')">Ladezeiten</button>
+        <button class="tab-button" onclick="openTab(event, 'live-ansicht')">Live Ansicht</button>
     </div>
 
-    <h2>Abgeschlossene Ladevorgänge</h2>
-    <table id="sessionsTable">
-        <thead>
-            <tr>
-                <th>Fahrername</th>
-                <th>Ankunft</th>
-                <th>Abfahrt</th>
-                <th>Ladezeit</th>
-                <th>Adresse</th>
-                <th>Kunde</th>
-            </tr>
-        </thead>
-        <tbody id="sessionsTableBody"></tbody>
-    </table>
+    <div id="ladezeiten" class="tab-content active">
+        <div class="filter-section">
+            <h2>Filter</h2>
+            <label for="driverFilter">Fahrer:</label>
+            <select id="driverFilter"></select>
+            <label for="startDate">Von:</label>
+            <input type="date" id="startDate">
+            <label for="endDate">Bis:</label>
+            <input type="date" id="endDate">
+            <label for="addressSearch">Adresse:</label>
+            <input type="text" id="addressSearch" placeholder="Adresse suchen...">
+            <button id="filterButton">Filtern</button>
+            <button id="resetButton">Filter zurücksetzen</button>
+        </div>
+        <h2>Abgeschlossene Ladevorgänge</h2>
+        <table id="sessionsTable">
+            <thead>
+                <tr>
+                    <th>Fahrername</th>
+                    <th>Ankunft</th>
+                    <th>Abfahrt</th>
+                    <th>Ladezeit</th>
+                    <th>Adresse</th>
+                    <th>Kunde</th>
+                </tr>
+            </thead>
+            <tbody id="sessionsTableBody"></tbody>
+        </table>
+    </div>
+
+    <div id="live-ansicht" class="tab-content">
+        <h2>Live Positionen</h2>
+        <table id="liveLocationsTable">
+            <thead>
+                <tr>
+                    <th>Fahrername</th>
+                    <th>Letzte bekannte Adresse</th>
+                    <th>Letzte Aktualisierung</th>
+                </tr>
+            </thead>
+            <tbody id="liveLocationsTableBody"></tbody>
+        </table>
+    </div>
 
     <script>
+        // Tab-váltó logika
+        function openTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        // Ladezeiten fül logikája
         const driverFilter = document.getElementById('driverFilter');
         const startDate = document.getElementById('startDate');
         const endDate = document.getElementById('endDate');
@@ -164,12 +214,10 @@
 
         async function fetchWorkSessions() {
             tableBody.innerHTML = '<tr><td colspan="6">Lade Daten...</td></tr>';
-
             const driver = driverFilter.value;
             const start = startDate.value;
             const end = endDate.value;
             const address = addressSearch.value;
-
             let url = '/api/work-sessions?';
             if (driver) url += `driver=${encodeURIComponent(driver)}&`;
             if (start) url += `startDate=${start}&`;
@@ -180,40 +228,22 @@
                 const response = await fetch(url);
                 const sessions = await response.json();
                 tableBody.innerHTML = '';
-
                 if (sessions.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="6">Keine abgeschlossenen Ladevorgänge für die ausgewählten Filter gefunden.</td></tr>';
                     return;
                 }
-
                 sessions.forEach(session => {
                     const row = document.createElement('tr');
-                    
                     const arrivalTimestamp = parseInt(session.arrivalTime, 10);
                     const departureTimestamp = parseInt(session.departureTime, 10);
-
                     const arrivalDate = arrivalTimestamp ? new Date(arrivalTimestamp).toLocaleString('de-DE') : 'Ungültig';
                     const departureDate = departureTimestamp ? new Date(departureTimestamp).toLocaleString('de-DE') : 'Ungültig';
-
                     const googleMapsLink = session.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(session.address)}` : '#';
                     const addressDisplay = session.address ? `<a href="${googleMapsLink}" target="_blank">${session.address}</a>` : 'N/A';
-
-                    const kundeCell = `
-                        <input type="text" placeholder="Kunde eintragen..." data-session-id="${session.sessionId}" value="${session.customerName || ''}">
-                        <button data-session-id="${session.sessionId}">Speichern</button>
-                    `;
-
-                    row.innerHTML = `
-                        <td>${session.driverName || 'N/A'}</td>
-                        <td>${arrivalDate}</td>
-                        <td>${departureDate}</td>
-                        <td>${session.duration || 'N/A'}</td>
-                        <td>${addressDisplay}</td>
-                        <td>${kundeCell}</td>
-                    `;
+                    const kundeCell = `<input type="text" placeholder="Kunde eintragen..." data-session-id="${session.sessionId}" value="${session.customerName || ''}"><button data-session-id="${session.sessionId}">Speichern</button>`;
+                    row.innerHTML = `<td>${session.driverName || 'N/A'}</td><td>${arrivalDate}</td><td>${departureDate}</td><td>${session.duration || 'N/A'}</td><td>${addressDisplay}</td><td>${kundeCell}</td>`;
                     tableBody.appendChild(row);
                 });
-
             } catch (error) {
                 tableBody.innerHTML = '<tr><td colspan="6">Fehler beim Laden.</td></tr>';
                 console.error('Hiba az adatok lekérésekor:', error);
@@ -226,27 +256,18 @@
                 const sessionId = button.getAttribute('data-session-id');
                 const input = tableBody.querySelector(`input[data-session-id="${sessionId}"]`);
                 const customerName = input.value;
-
                 button.textContent = 'Speichere...';
                 button.disabled = true;
-
                 try {
                     const response = await fetch('/api/customer', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ sessionId, customerName }),
                     });
-
                     if (response.ok) {
                         button.textContent = 'Gespeichert';
                         button.classList.add('saved');
-                        if (input.value) {
-                            input.style.fontWeight = 'bold';
-                        } else {
-                            input.style.fontWeight = 'normal';
-                        }
+                        input.style.fontWeight = input.value ? 'bold' : 'normal';
                     } else {
                         throw new Error('Server-Fehler beim Speichern');
                     }
@@ -270,8 +291,37 @@
         filterButton.addEventListener('click', fetchWorkSessions);
         resetButton.addEventListener('click', resetFilters);
 
+        // Live Ansicht fül logikája
+        const liveTableBody = document.getElementById('liveLocationsTableBody');
+
+        async function fetchLiveLocations() {
+            try {
+                const response = await fetch('/api/live-locations');
+                const locations = await response.json();
+                liveTableBody.innerHTML = '';
+                if (locations.length === 0) {
+                    liveTableBody.innerHTML = '<tr><td colspan="3">Warte auf Live-Daten...</td></tr>';
+                    return;
+                }
+                locations.forEach(location => {
+                    const row = document.createElement('tr');
+                    const googleMapsLink = location.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.address)}` : '#';
+                    const addressDisplay = location.address ? `<a href="${googleMapsLink}" target="_blank">${location.address}</a>` : 'N/A';
+                    const lastUpdated = location.last_updated ? new Date(parseInt(location.last_updated, 10)).toLocaleString('de-DE') : 'Unbekannt';
+                    row.innerHTML = `<td>${location.drivername}</td><td>${addressDisplay}</td><td>${lastUpdated}</td>`;
+                    liveTableBody.appendChild(row);
+                });
+            } catch (error) {
+                liveTableBody.innerHTML = '<tr><td colspan="3">Fehler beim Laden der Live-Daten.</td></tr>';
+                console.error('Fehler beim Laden der Live-Daten:', error);
+            }
+        }
+
+        // Kezdeti betöltés és időzítők
         populateDrivers();
         fetchWorkSessions();
+        fetchLiveLocations();
+        setInterval(fetchLiveLocations, 20000); // Live nézet frissítése 20 másodpercenként
     </script>
 
 </body>
