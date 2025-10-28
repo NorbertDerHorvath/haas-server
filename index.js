@@ -16,11 +16,11 @@ const pool = new Pool({
     }
 });
 
-// Adatbázis séma frissítése és tábla létrehozása
+// Adatbázis séma frissítése és táblák létrehozása
 const setupDatabase = async () => {
     const client = await pool.connect();
     try {
-        // Tábla létrehozása, ha nem létezik
+        // 'events' tábla
         await client.query(`
             CREATE TABLE IF NOT EXISTS events (
                 id SERIAL PRIMARY KEY,
@@ -30,20 +30,24 @@ const setupDatabase = async () => {
                 timestamp BIGINT NOT NULL,
                 latitude REAL NOT NULL,
                 longitude REAL NOT NULL,
-                address TEXT
+                address TEXT,
+                customer_name TEXT
             );
         `);
         console.log("Az 'events' tábla készen áll.");
 
-        // Új 'customer_name' oszlop hozzáadása, ha még nem létezik
-        const columns = await client.query(`
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name='events' AND column_name='customer_name';
+        // ÚJ: 'live_locations' tábla
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS live_locations (
+                driverName TEXT PRIMARY KEY,
+                address TEXT,
+                latitude REAL,
+                longitude REAL,
+                last_updated BIGINT
+            );
         `);
-        if (columns.rows.length === 0) {
-            await client.query('ALTER TABLE events ADD COLUMN customer_name TEXT;');
-            console.log("A 'customer_name' oszlop sikeresen hozzáadva.");
-        }
+        console.log("Az 'live_locations' tábla készen áll.");
+
     } catch (err) {
         console.error("Hiba az adatbázis beállításakor:", err);
     } finally {
@@ -95,6 +99,32 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
+// ÚJ: Élő helyzet frissítése
+app.post('/api/live-update', async (req, res) => {
+    const { driverName, address, latitude, longitude } = req.body;
+    if (!driverName || !address) {
+        return res.status(400).send({ message: 'Hiányzó adatok.' });
+    }
+
+    const upsertSql = `
+        INSERT INTO live_locations (driverName, address, latitude, longitude, last_updated)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (driverName) 
+        DO UPDATE SET 
+            address = EXCLUDED.address, 
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude,
+            last_updated = EXCLUDED.last_updated;
+    `;
+    try {
+        await pool.query(upsertSql, [driverName, address, latitude, longitude, Date.now()]);
+        res.status(200).send({ message: 'Élő helyzet frissítve.' });
+    } catch (err) {
+        console.error("Hiba az élő helyzet frissítésekor:", err);
+        res.status(500).send({ message: 'Szerverhiba az élő helyzet frissítésekor.' });
+    }
+});
+
 
 // --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
 app.get('/api/drivers', checkAuth, async (req, res) => {
@@ -109,14 +139,22 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
     }
 });
 
-// ÚJ VÉGPONT az ügyfélnév mentéséhez
+// ÚJ: Élő helyzetek lekérdezése
+app.get('/api/live-locations', checkAuth, async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM live_locations ORDER BY driverName");
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error("Hiba az élő helyzetek lekérdezésekor:", err);
+        res.status(500).send({ message: 'Szerverhiba az élő helyzetek lekérdezésekor.' });
+    }
+});
+
 app.post('/api/customer', checkAuth, async (req, res) => {
     const { sessionId, customerName } = req.body;
-
     if (!sessionId) {
         return res.status(400).send({ message: 'Hiányzó session ID.' });
     }
-
     const sql = `UPDATE events SET customer_name = $1 WHERE id = $2`;
     try {
         await pool.query(sql, [customerName, sessionId]);
@@ -127,10 +165,8 @@ app.post('/api/customer', checkAuth, async (req, res) => {
     }
 });
 
-
 app.get('/api/work-sessions', checkAuth, async (req, res) => {
-    const { driver, startDate, endDate, address } = req.query; // ÚJ
-    
+    const { driver, startDate, endDate, address } = req.query;
     let sql = "SELECT * FROM events";
     const params = [];
     const conditions = [];
@@ -148,10 +184,9 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
         conditions.push(`timestamp <= $${paramIndex++}`);
         params.push(new Date(endDate).setHours(23, 59, 59, 999));
     }
-    // ÚJ: Címkeresés feltétele
     if (address) {
-        conditions.push(`address ILIKE $${paramIndex++}`); // ILIKE a kis- és nagybetű érzéketlen kereséshez
-        params.push(`%${address}%`); // % wildcards a részleges egyezéshez
+        conditions.push(`address ILIKE $${paramIndex++}`);
+        params.push(`%${address}%`);
     }
 
     if (conditions.length > 0) {
@@ -176,12 +211,12 @@ app.get('/api/work-sessions', checkAuth, async (req, res) => {
                 const arrival = sessionsByDevice[deviceId].lastArrival;
                 if (event.timestamp > arrival.timestamp) {
                     initialSessions.push({
-                        sessionId: arrival.id, // Munkamenet azonosító
+                        sessionId: arrival.id,
                         driverName: arrival.drivername || 'Ismeretlen',
                         arrivalTime: arrival.timestamp,
                         departureTime: event.timestamp,
                         address: arrival.address || 'N/A',
-                        customerName: arrival.customer_name || '' // Ügyfél nevének betöltése
+                        customerName: arrival.customer_name || ''
                     });
                 }
                 sessionsByDevice[deviceId].lastArrival = null;
