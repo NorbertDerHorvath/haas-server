@@ -36,17 +36,34 @@ const setupDatabase = async () => {
         `);
         console.log("Az 'events' tábla készen áll.");
 
-        // ÚJ: 'live_locations' tábla
+        // 'live_locations' tábla
         await client.query(`
             CREATE TABLE IF NOT EXISTS live_locations (
                 driverName TEXT PRIMARY KEY,
                 address TEXT,
                 latitude REAL,
                 longitude REAL,
-                last_updated BIGINT
+                last_updated BIGINT,
+                speed REAL,
+                battery_level INTEGER
             );
         `);
         console.log("Az 'live_locations' tábla készen áll.");
+
+        // Új oszlopok hozzáadása a 'live_locations' táblához, ha még nem léteznek
+        const columns = await client.query(`
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='live_locations';
+        `);
+        const columnNames = columns.rows.map(r => r.column_name);
+        if (!columnNames.includes('speed')) {
+            await client.query('ALTER TABLE live_locations ADD COLUMN speed REAL;');
+            console.log("A 'speed' oszlop sikeresen hozzáadva.");
+        }
+        if (!columnNames.includes('battery_level')) {
+            await client.query('ALTER TABLE live_locations ADD COLUMN battery_level INTEGER;');
+            console.log("A 'battery_level' oszlop sikeresen hozzáadva.");
+        }
 
     } catch (err) {
         console.error("Hiba az adatbázis beállításakor:", err);
@@ -99,25 +116,27 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-// ÚJ: Élő helyzet frissítése
+// MÓDOSÍTOTT: Élő helyzet frissítése sebességgel és akkuval
 app.post('/api/live-update', async (req, res) => {
-    const { driverName, address, latitude, longitude } = req.body;
-    if (!driverName || !address) {
+    const { driverName, address, latitude, longitude, speed, batteryLevel } = req.body;
+    if (!driverName) {
         return res.status(400).send({ message: 'Hiányzó adatok.' });
     }
 
     const upsertSql = `
-        INSERT INTO live_locations (driverName, address, latitude, longitude, last_updated)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO live_locations (driverName, address, latitude, longitude, speed, battery_level, last_updated)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (driverName) 
         DO UPDATE SET 
             address = EXCLUDED.address, 
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude,
+            speed = EXCLUDED.speed,
+            battery_level = EXCLUDED.battery_level,
             last_updated = EXCLUDED.last_updated;
     `;
     try {
-        await pool.query(upsertSql, [driverName, address, latitude, longitude, Date.now()]);
+        await pool.query(upsertSql, [driverName, address, latitude, longitude, speed, batteryLevel, Date.now()]);
         res.status(200).send({ message: 'Élő helyzet frissítve.' });
     } catch (err) {
         console.error("Hiba az élő helyzet frissítésekor:", err);
@@ -139,7 +158,7 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
     }
 });
 
-// ÚJ: Élő helyzetek lekérdezése
+// MÓDOSÍTOTT: Élő helyzetek lekérdezése sebességgel és akkuval
 app.get('/api/live-locations', checkAuth, async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM live_locations ORDER BY driverName");
