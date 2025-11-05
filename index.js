@@ -116,13 +116,11 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-// MÓDOSÍTOTT: Élő helyzet frissítése sebességgel és akkuval
 app.post('/api/live-update', async (req, res) => {
     const { driverName, address, latitude, longitude, speed, batteryLevel } = req.body;
     if (!driverName) {
         return res.status(400).send({ message: 'Hiányzó adatok.' });
     }
-
     const upsertSql = `
         INSERT INTO live_locations (driverName, address, latitude, longitude, speed, battery_level, last_updated)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -144,9 +142,23 @@ app.post('/api/live-update', async (req, res) => {
     }
 });
 
+// JAVÍTÁS: A /api/live-locations végpontot is a nem védett részbe helyezzük
+app.get('/api/live-locations', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM live_locations ORDER BY driverName");
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error("Hiba az élő helyzetek lekérdezésekor:", err);
+        res.status(500).send({ message: 'Szerverhiba az élő helyzetek lekérdezésekor.' });
+    }
+});
 
-// --- VÉDETT API VÉGPONTOK (a böngésző számára) ---
-app.get('/api/drivers', checkAuth, async (req, res) => {
+
+// --- VÉDETT RÉSZEK ---
+// A checkAuth middleware csak az EZ ALATT lévő végpontokat és a statikus fájlokat fogja védeni
+app.use(checkAuth);
+
+app.get('/api/drivers', async (req, res) => {
     const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
     try {
         const result = await pool.query(sql);
@@ -158,18 +170,7 @@ app.get('/api/drivers', checkAuth, async (req, res) => {
     }
 });
 
-// MÓDOSÍTOTT: Élő helyzetek lekérdezése sebességgel és akkuval
-app.get('/api/live-locations', checkAuth, async (req, res) => {
-    try {
-        const result = await pool.query("SELECT * FROM live_locations ORDER BY driverName");
-        res.status(200).json(result.rows);
-    } catch (err) {
-        console.error("Hiba az élő helyzetek lekérdezésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba az élő helyzetek lekérdezésekor.' });
-    }
-});
-
-app.post('/api/customer', checkAuth, async (req, res) => {
+app.post('/api/customer', async (req, res) => {
     const { sessionId, customerName } = req.body;
     if (!sessionId) {
         return res.status(400).send({ message: 'Hiányzó session ID.' });
@@ -184,7 +185,7 @@ app.post('/api/customer', checkAuth, async (req, res) => {
     }
 });
 
-app.get('/api/work-sessions', checkAuth, async (req, res) => {
+app.get('/api/work-sessions', async (req, res) => {
     const { driver, startDate, endDate, address } = req.query;
     let sql = "SELECT * FROM events";
     const params = [];
