@@ -1,303 +1,62 @@
-// 1. A szükséges csomagok betöltése
 const express = require('express');
-const { Pool } = require('pg');
-const basicAuth = require('basic-auth');
-const path = require('path');
-
-// 2. Az Express alkalmazás és a port beállítása
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 3. Adatbázis kapcsolat létrehozása
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
-});
+// 1. API KULCS BEÁLLÍTÁSA (ezt a Render-en kell megadnod)
+const API_KEY = process.env.API_KEY || 'alapertelmezett-titkos-kulcs';
 
-// Adatbázis séma frissítése és táblák létrehozása
-const setupDatabase = async () => {
-    const client = await pool.connect();
-    try {
-        // 'events' tábla
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS events (
-                id SERIAL PRIMARY KEY,
-                deviceId TEXT NOT NULL,
-                driverName TEXT,
-                eventType TEXT NOT NULL,
-                timestamp BIGINT NOT NULL,
-                latitude REAL NOT NULL,
-                longitude REAL NOT NULL,
-                address TEXT,
-                customer_name TEXT
-            );
-        `);
-        console.log("Az 'events' tábla készen áll.");
+// 2. ADATBÁZIS HELYETT MEMÓRIÁBAN TÁROLÁS (egyszerűség kedvéért)
+// A felhasználók adatait itt tároljuk. Az app újraindulásakor ez törlődik.
+const users = {};
 
-        // 'live_locations' tábla
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS live_locations (
-                driverName TEXT PRIMARY KEY,
-                address TEXT,
-                latitude REAL,
-                longitude REAL,
-                last_updated BIGINT,
-                speed REAL,
-                battery_level INTEGER
-            );
-        `);
-        console.log("Az 'live_locations' tábla készen áll.");
-
-        // Új oszlopok hozzáadása a 'live_locations' táblához, ha még nem léteznek
-        const columns = await client.query(`
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name='live_locations';
-        `);
-        const columnNames = columns.rows.map(r => r.column_name);
-        if (!columnNames.includes('speed')) {
-            await client.query('ALTER TABLE live_locations ADD COLUMN speed REAL;');
-            console.log("A 'speed' oszlop sikeresen hozzáadva.");
-        }
-        if (!columnNames.includes('battery_level')) {
-            await client.query('ALTER TABLE live_locations ADD COLUMN battery_level INTEGER;');
-            console.log("A 'battery_level' oszlop sikeresen hozzáadva.");
-        }
-
-    } catch (err) {
-        console.error("Hiba az adatbázis beállításakor:", err);
-    } finally {
-        client.release();
-    }
-};
-setupDatabase();
-
-
-// 4. Middleware beállítások
+// Middleware a JSON-formátumú kérések feldolgozásához
 app.use(express.json());
 
-// Jelszavas védelem middleware
-const checkAuth = (req, res, next) => {
-    const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-    const ADMIN_PASS = process.env.ADMIN_PASS || 'password';
-    const credentials = basicAuth(req);
-    if (!credentials || credentials.name !== ADMIN_USER || credentials.pass !== ADMIN_PASS) {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Simple Dashboard"');
-        return res.status(401).send('Hozzáférés megtagadva');
+// 3. HITelesítési MIDDLEWARE (API-kulcs ellenőrzése)
+// Ez a middleware minden kérésnél lefut, és ellenőrzi az API-kulcsot.
+const checkApiKey = (req, res, next) => {
+    const apiKey = req.headers['x-api-key']; // Az app ebben a fejlécben fogja küldeni a kulcsot
+    if (!apiKey || apiKey !== API_KEY) {
+        return res.status(401).send('Unauthorized'); // Ha a kulcs rossz, 401-es hibát küldünk
     }
-    next();
+    next(); // Ha a kulcs jó, a kérés továbbmegy a megfelelő végpontra
 };
 
-// 5. ÚTVONALAK (ROUTES)
+// A hitelesítési middleware alkalmazása az összes útvonalra
+app.use(checkApiKey);
 
-// --- NEM VÉDETT VÉGPONTOK (az Android app számára) ---
-app.post('/api/ping', (req, res) => {
-    const { deviceId } = req.body;
-    if (!deviceId) return res.status(400).send({ message: 'Hiányzó deviceId.' });
-    console.log(`---> BEJELENTKEZÉS: ${deviceId} <---`);
-    res.status(200).send({ message: 'Ping fogadva' });
+
+// 4. ÚTVONALAK (VÉGPONTOK)
+
+// GET /users - Az összes felhasználó adatának lekérdezése
+app.get('/users', (req, res) => {
+    // A users objektumot egy listává (tömbbé) alakítjuk, és azt küldjük vissza
+    const userList = Object.values(users);
+    console.log(`Lekérdezés: ${userList.length} felhasználó adatainak elküldése.`);
+    res.json(userList);
 });
 
-app.post('/api/events', async (req, res) => {
-    const events = req.body;
-    if (!events || !Array.isArray(events)) return res.status(400).send({ message: 'Érvénytelen adatformátum.' });
-    const insertSql = `INSERT INTO events (deviceId, driverName, eventType, timestamp, latitude, longitude, address) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
-    try {
-        for (const event of events) {
-            const params = [event.deviceId, event.driverName, event.eventType, event.timestamp, event.latitude, event.longitude, event.address];
-            await pool.query(insertSql, params);
-        }
-        console.log(`Sikeresen elmentve ${events.length} esemény.`);
-        res.status(200).send({ message: 'Adatfeldolgozás elindítva' });
-    } catch (err) {
-        console.error("Hiba az adatbázisba íráskor:", err);
-        res.status(500).send({ message: 'Szerverhiba az adatbázisba íráskor.' });
-    }
-});
+// POST /users - Egy felhasználó adatainak frissítése vagy létrehozása
+app.post('/users', (req, res) => {
+    const userData = req.body;
 
-app.post('/api/live-update', async (req, res) => {
-    const { driverName, address, latitude, longitude, speed, batteryLevel } = req.body;
-    if (!driverName) {
-        return res.status(400).send({ message: 'Hiányzó adatok.' });
+    // Alapvető validáció: a `userId` kötelező
+    if (!userData || !userData.userId) {
+        return res.status(400).send('Bad Request: a `userId` hiányzik.');
     }
-    const upsertSql = `
-        INSERT INTO live_locations (driverName, address, latitude, longitude, speed, battery_level, last_updated)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (driverName) 
-        DO UPDATE SET 
-            address = EXCLUDED.address, 
-            latitude = EXCLUDED.latitude,
-            longitude = EXCLUDED.longitude,
-            speed = EXCLUDED.speed,
-            battery_level = EXCLUDED.battery_level,
-            last_updated = EXCLUDED.last_updated;
-    `;
-    try {
-        await pool.query(upsertSql, [driverName, address, latitude, longitude, speed, batteryLevel, Date.now()]);
-        res.status(200).send({ message: 'Élő helyzet frissítve.' });
-    } catch (err) {
-        console.error("Hiba az élő helyzet frissítésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba az élő helyzet frissítésekor.' });
-    }
-});
-
-// JAVÍTÁS: A /api/live-locations végpontot is a nem védett részbe helyezzük
-app.get('/api/live-locations', async (req, res) => {
-    try {
-        const result = await pool.query("SELECT * FROM live_locations ORDER BY driverName");
-        res.status(200).json(result.rows);
-    } catch (err) {
-        console.error("Hiba az élő helyzetek lekérdezésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba az élő helyzetek lekérdezésekor.' });
-    }
+    
+    // A felhasználó adatainak tárolása a `userId` alapján
+    users[userData.userId] = {
+        ...userData,
+        lastUpdated: Date.now() // Hozzáadunk egy időbélyeget a frissítés idejéről
+    };
+    
+    console.log(`Frissítés: ${userData.userId} nevű felhasználó adatai elmentve.`);
+    res.status(200).send('Adatok sikeresen frissítve.');
 });
 
 
-// --- VÉDETT RÉSZEK ---
-// A checkAuth middleware csak az EZ ALATT lévő végpontokat és a statikus fájlokat fogja védeni
-app.use(checkAuth);
-
-app.get('/api/drivers', async (req, res) => {
-    const sql = "SELECT DISTINCT driverName FROM events WHERE driverName IS NOT NULL";
-    try {
-        const result = await pool.query(sql);
-        const drivers = result.rows.map(r => r.drivername);
-        res.status(200).json(drivers);
-    } catch (err) {
-        console.error("Hiba a sofőrök lekérdezésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba a sofőrök lekérdezésekor.' });
-    }
-});
-
-app.post('/api/customer', async (req, res) => {
-    const { sessionId, customerName } = req.body;
-    if (!sessionId) {
-        return res.status(400).send({ message: 'Hiányzó session ID.' });
-    }
-    const sql = `UPDATE events SET customer_name = $1 WHERE id = $2`;
-    try {
-        await pool.query(sql, [customerName, sessionId]);
-        res.status(200).send({ message: 'Ügyfél sikeresen mentve.' });
-    } catch (err) {
-        console.error("Hiba az ügyfél mentésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba az ügyfél mentésekor.' });
-    }
-});
-
-app.get('/api/work-sessions', async (req, res) => {
-    const { driver, startDate, endDate, address } = req.query;
-    let sql = "SELECT * FROM events";
-    const params = [];
-    const conditions = [];
-    let paramIndex = 1;
-
-    if (driver) {
-        conditions.push(`driverName = $${paramIndex++}`);
-        params.push(driver);
-    }
-    if (startDate) {
-        conditions.push(`timestamp >= $${paramIndex++}`);
-        params.push(new Date(startDate).getTime());
-    }
-    if (endDate) {
-        conditions.push(`timestamp <= $${paramIndex++}`);
-        params.push(new Date(endDate).setHours(23, 59, 59, 999));
-    }
-    if (address) {
-        conditions.push(`address ILIKE $${paramIndex++}`);
-        params.push(`%${address}%`);
-    }
-
-    if (conditions.length > 0) {
-        sql += " WHERE " + conditions.join(" AND ");
-    }
-    sql += " ORDER BY deviceId, timestamp";
-
-    try {
-        const result = await pool.query(sql, params);
-        const rows = result.rows;
-
-        const initialSessions = [];
-        const sessionsByDevice = {};
-        rows.forEach(event => {
-            const deviceId = event.deviceid;
-            if (!sessionsByDevice[deviceId]) {
-                sessionsByDevice[deviceId] = { lastArrival: null };
-            }
-            if (event.eventtype === 'ARRIVAL') {
-                sessionsByDevice[deviceId].lastArrival = event;
-            } else if (event.eventtype === 'DEPARTURE' && sessionsByDevice[deviceId].lastArrival) {
-                const arrival = sessionsByDevice[deviceId].lastArrival;
-                if (event.timestamp > arrival.timestamp) {
-                    initialSessions.push({
-                        sessionId: arrival.id,
-                        driverName: arrival.drivername || 'Ismeretlen',
-                        arrivalTime: arrival.timestamp,
-                        departureTime: event.timestamp,
-                        address: arrival.address || 'N/A',
-                        customerName: arrival.customer_name || ''
-                    });
-                }
-                sessionsByDevice[deviceId].lastArrival = null;
-            }
-        });
-
-        const MINUTE_IN_MS = 60 * 1000;
-        const sessionsByDriver = {};
-        initialSessions.forEach(session => {
-            if (!sessionsByDriver[session.driverName]) {
-                sessionsByDriver[session.driverName] = [];
-            }
-            sessionsByDriver[session.driverName].push(session);
-        });
-
-        let finalMergedWorks = [];
-        for (const driverName in sessionsByDriver) {
-            const driverSessions = sessionsByDriver[driverName].sort((a, b) => a.arrivalTime - b.arrivalTime);
-            if (driverSessions.length === 0) continue;
-
-            let merged = [];
-            let currentSession = { ...driverSessions[0] };
-
-            for (let i = 1; i < driverSessions.length; i++) {
-                const nextSession = driverSessions[i];
-                const gap = nextSession.arrivalTime - currentSession.departureTime;
-
-                if (gap < MINUTE_IN_MS) {
-                    currentSession.departureTime = nextSession.departureTime;
-                } else {
-                    merged.push(currentSession);
-                    currentSession = { ...nextSession };
-                }
-            }
-            merged.push(currentSession);
-            finalMergedWorks = finalMergedWorks.concat(merged);
-        }
-
-        const formattedWorks = finalMergedWorks.map(session => {
-            const durationMs = session.departureTime - session.arrivalTime;
-            const durationMinutes = Math.round(durationMs / 60000);
-            return {
-                ...session,
-                duration: `${durationMinutes} Minuten`
-            };
-        });
-
-        formattedWorks.sort((a, b) => b.arrivalTime - a.arrivalTime);
-        res.status(200).json(formattedWorks);
-
-    } catch (err) {
-        console.error("Hiba az adatok lekérdezésekor:", err);
-        res.status(500).send({ message: 'Szerverhiba az adatok lekérdezésekor.' });
-    }
-});
-
-
-// --- STATIKUS FÁJLOK KISZOLGÁLÁSA (a legvégén) ---
-app.use(express.static(path.join(__dirname, 'public')));
-
-// 6. A szerver elindítása
+// A szerver elindítása
 app.listen(PORT, () => {
-    console.log(`A szerver fut a http://localhost:${PORT} címen`);
+    console.log(`A szerver fut a http://localhost:${PORT} porton`);
 });
