@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'alapertelmezett-titkos-kulcs';
 
 // 2. ADATBÁZIS CSATLAKOZÁS BEÁLLÍTÁSA
-// A kapcsolódási adatokat a Render-en beállított DATABASE_URL környezeti változóból veszi.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
@@ -32,15 +31,16 @@ app.use(checkApiKey);
 
 // 4. ADATBÁZIS TÁBLA LÉTREHOZÁSÁNAK FÜGGVÉNYE
 const initializeDatabase = async () => {
+    // A biztonság kedvéért minden oszlopnév idézőjelek nélkül, kisbetűvel szerepel
     const createTableQuery = `
         CREATE TABLE users (
             "userId" VARCHAR(255) PRIMARY KEY,
             latitude DOUBLE PRECISION,
             longitude DOUBLE PRECISION,
             address TEXT,
-            "batteryLevel" REAL,
-            "isCharging" BOOLEAN,
-            "lastUpdated" BIGINT
+            batterylevel REAL,
+            ischarging BOOLEAN,
+            lastupdated BIGINT
         );
     `;
     try {
@@ -63,7 +63,8 @@ const initializeDatabase = async () => {
 // GET /users - Az összes felhasználó adatának lekérdezése
 app.get('/users', async (req, res) => {
     try {
-        const result = await pool.query('SELECT "userId", latitude, longitude, address, "batteryLevel", "isCharging", "lastUpdated" FROM users');
+        // A SELECT-ben is a helyes, kisbetűs oszlopneveket használjuk
+        const result = await pool.query('SELECT "userId", latitude, longitude, address, batterylevel, ischarging, lastupdated FROM users');
         console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
     } catch (err) {
@@ -83,16 +84,17 @@ app.post('/users', async (req, res) => {
     const { userId, latitude, longitude, address, batteryLevel, isCharging } = userData;
     const lastUpdated = Date.now();
 
+    // Az INSERT és UPDATE részekben is a helyes, kisbetűs oszlopneveket használjuk
     const upsertQuery = `
-        INSERT INTO users ("userId", latitude, longitude, address, "batteryLevel", "isCharging", "lastUpdated")
+        INSERT INTO users ("userId", latitude, longitude, address, batterylevel, ischarging, lastupdated)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT ("userId") DO UPDATE SET
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude,
             address = EXCLUDED.address,
-            "batteryLevel" = EXCLUDED."batteryLevel",
-            "isCharging" = EXCLUDED."isCharging",
-            "lastUpdated" = EXCLUDED."lastUpdated";
+            batterylevel = EXCLUDED.batterylevel,
+            ischarging = EXCLUDED.ischarging,
+            lastupdated = EXCLUDED.lastupdated;
     `;
 
     try {
