@@ -30,25 +30,29 @@ const checkApiKey = (req, res, next) => {
 app.use(checkApiKey);
 
 
-// 4. ADATBÁZIS TÁBLA LÉTREHOZÁSA (ha még nem létezik)
-const createUsersTable = async () => {
+// 4. ADATBÁZIS TÁBLA LÉTREHOZÁSÁNAK FÜGGVÉNYE
+const initializeDatabase = async () => {
     const createTableQuery = `
-        CREATE TABLE IF NOT EXISTS users (
+        CREATE TABLE users (
             "userId" VARCHAR(255) PRIMARY KEY,
-            "latitude" DOUBLE PRECISION,
-            "longitude" DOUBLE PRECISION,
-            "address" TEXT,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            address TEXT,
             "batteryLevel" REAL,
             "isCharging" BOOLEAN,
             "lastUpdated" BIGINT
         );
     `;
     try {
+        // Töröljük a táblát, ha létezik, hogy tiszta lappal induljunk
+        await pool.query('DROP TABLE IF EXISTS users;');
+        console.log('"users" tábla sikeresen törölve (ha létezett).');
+        
+        // Létrehozzuk az új, helyes szerkezetű táblát
         await pool.query(createTableQuery);
-        console.log('"users" tábla sikeresen ellenőrizve/létrehozva.');
+        console.log('"users" tábla sikeresen létrehozva.');
     } catch (err) {
-        console.error('Hiba a "users" tábla létrehozásakor:', err);
-        // Leállítjuk a szervert, ha az adatbázis alapvető művelet hibára fut.
+        console.error('Hiba az adatbázis inicializálásakor:', err);
         process.exit(1); 
     }
 };
@@ -56,11 +60,11 @@ const createUsersTable = async () => {
 
 // 5. ÚTVONALAK (VÉGPONTOK)
 
-// GET /users - Az összes felhasználó adatának lekérdezése az adatbázisból
+// GET /users - Az összes felhasználó adatának lekérdezése
 app.get('/users', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM users');
-        console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése az adatbázisból.`);
+        const result = await pool.query('SELECT "userId", latitude, longitude, address, "batteryLevel", "isCharging", "lastUpdated" FROM users');
+        console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
     } catch (err) {
         console.error('Hiba a felhasználók lekérdezésekor:', err);
@@ -68,7 +72,7 @@ app.get('/users', async (req, res) => {
     }
 });
 
-// POST /users - Egy felhasználó adatainak frissítése vagy létrehozása az adatbázisban (UPSERT)
+// POST /users - Felhasználó adatainak frissítése/létrehozása (UPSERT)
 app.post('/users', async (req, res) => {
     const userData = req.body;
 
@@ -80,20 +84,19 @@ app.post('/users', async (req, res) => {
     const lastUpdated = Date.now();
 
     const upsertQuery = `
-        INSERT INTO users ("userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "lastUpdated")
+        INSERT INTO users ("userId", latitude, longitude, address, "batteryLevel", "isCharging", "lastUpdated")
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT ("userId") DO UPDATE SET
-            "latitude" = EXCLUDED.latitude,
-            "longitude" = EXCLUDED.longitude,
-            "address" = EXCLUDED.address,
-            "batteryLevel" = EXCLUDED.batteryLevel,
-            "isCharging" = EXCLUDED.isCharging,
-            "lastUpdated" = EXCLUDED.lastUpdated;
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude,
+            address = EXCLUDED.address,
+            "batteryLevel" = EXCLUDED."batteryLevel",
+            "isCharging" = EXCLUDED."isCharging",
+            "lastUpdated" = EXCLUDED."lastUpdated";
     `;
 
     try {
         await pool.query(upsertQuery, [userId, latitude, longitude, address, batteryLevel, isCharging, lastUpdated]);
-        console.log(`Frissítés: ${userId} nevű felhasználó adatai elmentve az adatbázisba.`);
         res.status(200).send('Adatok sikeresen frissítve.');
     } catch (err) {
         console.error('Hiba az adatbázisba íráskor:', err);
@@ -102,8 +105,8 @@ app.post('/users', async (req, res) => {
 });
 
 
-// A szerver elindítása és az adatbázis tábla ellenőrzése
+// A szerver elindítása és az adatbázis inicializálása
 app.listen(PORT, async () => {
     console.log(`A szerver fut a http://localhost:${PORT} porton`);
-    await createUsersTable();
+    await initializeDatabase();
 });
