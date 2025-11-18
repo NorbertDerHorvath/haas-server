@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'alapertelmezett-titkos-kulcs';
 
 // 2. ADATBÁZIS CSATLAKOZÁS BEÁLLÍTÁSA
-// A kapcsolódási adatokat a Render-en beállított DATABASE_URL környezeti változóból veszi.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
@@ -41,6 +40,8 @@ const initializeDatabase = async () => {
             address TEXT,
             batterylevel REAL,
             ischarging BOOLEAN,
+            speed REAL,
+            pluggedin TEXT,
             lastupdated BIGINT
         );
     `;
@@ -65,7 +66,7 @@ const initializeDatabase = async () => {
 app.get('/users', async (req, res) => {
     try {
         // A SELECT-ben is a helyes, kisbetűs oszlopneveket használjuk
-        const result = await pool.query('SELECT "userId", latitude, longitude, address, batterylevel, ischarging, lastupdated FROM users');
+        const result = await pool.query('SELECT "userId", latitude, longitude, address, batterylevel, ischarging, speed, pluggedin, lastupdated FROM users');
         console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
     } catch (err) {
@@ -82,24 +83,26 @@ app.post('/users', async (req, res) => {
         return res.status(400).send('Bad Request: a `userId` hiányzik.');
     }
 
-    const { userId, latitude, longitude, address, batteryLevel, isCharging } = userData;
+    const { userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn } = userData;
     const lastUpdated = Date.now();
 
     // Az INSERT és UPDATE részekben is a helyes, kisbetűs oszlopneveket használjuk
     const upsertQuery = `
-        INSERT INTO users ("userId", latitude, longitude, address, batterylevel, ischarging, lastupdated)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO users ("userId", latitude, longitude, address, batterylevel, ischarging, speed, pluggedin, lastupdated)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT ("userId") DO UPDATE SET
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude,
             address = EXCLUDED.address,
             batterylevel = EXCLUDED.batterylevel,
             ischarging = EXCLUDED.ischarging,
+            speed = EXCLUDED.speed,
+            pluggedin = EXCLUDED.pluggedin,
             lastupdated = EXCLUDED.lastupdated;
     `;
 
     try {
-        await pool.query(upsertQuery, [userId, latitude, longitude, address, batteryLevel, isCharging, lastUpdated]);
+        await pool.query(upsertQuery, [userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn, lastUpdated]);
         res.status(200).send('Adatok sikeresen frissítve.');
     } catch (err) {
         console.error('Hiba az adatbázisba íráskor:', err);
