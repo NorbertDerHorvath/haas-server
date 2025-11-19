@@ -1,13 +1,12 @@
 const express = require('express');
-const { Pool } = require('pg');
-
-const app = express();
+const { Pool } = require('pg');const app = express();
 const PORT = process.env.PORT || 3000;
 
 // 1. API KULCS BEÁLLÍTÁSA
 const API_KEY = process.env.API_KEY || 'alapertelmezett-titkos-kulcs';
 
 // 2. ADATBÁZIS CSATLAKOZÁS BEÁLLÍTÁSA
+// A kapcsolódási adatokat a Render-en beállított DATABASE_URL környezeti változóból veszi.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
