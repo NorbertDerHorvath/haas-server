@@ -42,7 +42,9 @@ const initializeDatabase = async () => {
             "speed" REAL,
             "pluggedIn" TEXT,
             "callLog" JSONB,
-            "lastUpdated" BIGINT
+            "lastUpdated" BIGINT,
+            "networkType" TEXT,
+            "signalStrength" INTEGER
         );
     `;
     try {
@@ -61,7 +63,7 @@ const initializeDatabase = async () => {
 app.get('/users', async (req, res) => {
     try {
         // A SELECT-ben is az idézőjeles, camelCase neveket használjuk
-        const result = await pool.query('SELECT "userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated" FROM users');
+        const result = await pool.query('SELECT "userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated", "networkType", "signalStrength" FROM users');
         console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
     } catch (err) {
@@ -77,14 +79,14 @@ app.post('/users', async (req, res) => {
         return res.status(400).send('Bad Request: a `userId` hiányzik.');
     }
 
-    const { userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn, callLog } = userData;
+    const { userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn, callLog, networkType, signalStrength } = userData;
     const lastUpdated = Date.now();
     const callLogInJson = callLog ? JSON.stringify(callLog) : null;
 
     // JAVÍTVA: Az ON CONFLICT részben is idézőjellel használjuk az oszlopneveket
     const upsertQuery = `
-        INSERT INTO users ("userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated")
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO users ("userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated", "networkType", "signalStrength")
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT ("userId") DO UPDATE SET
             "latitude" = EXCLUDED."latitude",
             "longitude" = EXCLUDED."longitude",
@@ -94,11 +96,13 @@ app.post('/users', async (req, res) => {
             "speed" = EXCLUDED."speed",
             "pluggedIn" = EXCLUDED."pluggedIn",
             "callLog" = EXCLUDED."callLog",
-            "lastUpdated" = EXCLUDED."lastUpdated";
+            "lastUpdated" = EXCLUDED."lastUpdated",
+            "networkType" = EXCLUDED."networkType",
+            "signalStrength" = EXCLUDED."signalStrength";
     `;
 
     try {
-        await pool.query(upsertQuery, [userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn, callLogInJson, lastUpdated]);
+        await pool.query(upsertQuery, [userId, latitude, longitude, address, batteryLevel, isCharging, speed, pluggedIn, callLogInJson, lastUpdated, networkType, signalStrength]);
         res.status(200).send('Adatok sikeresen frissítve.');
     } catch (err) {
         console.error('Hiba az adatbázisba íráskor:', err);
