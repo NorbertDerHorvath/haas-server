@@ -58,10 +58,9 @@ const initializeDatabase = async () => {
 };
 
 // 5. ÚTVONALAK (VÉGPONTOK)
-
-// GET /users
 app.get('/users', async (req, res) => {
     try {
+        // A SELECT-ben is az idézőjeles, camelCase neveket használjuk
         const result = await pool.query('SELECT "userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated" FROM users');
         console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
@@ -71,7 +70,6 @@ app.get('/users', async (req, res) => {
     }
 });
 
-// POST /users
 app.post('/users', async (req, res) => {
     const userData = req.body;
 
