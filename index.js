@@ -18,7 +18,7 @@ const pool = new Pool({
 // Middleware a JSON-formátumú kérések feldolgozásához
 app.use(express.json());
 
-// 3. HITelesítési MIDDLEWARE
+// 3. HITELESÍTÉSI MIDDLEWARE
 const checkApiKey = (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     if (!apiKey || apiKey !== API_KEY) {
@@ -30,19 +30,19 @@ app.use(checkApiKey);
 
 // 4. ADATBÁZIS TÁBLA LÉTREHOZÁSÁNAK FÜGGVÉNYE
 const initializeDatabase = async () => {
-    // Most már a `callLog` oszlopot is létrehozzuk, JSONB típussal
+    // Az oszlopneveket idézőjelbe tesszük, hogy a PostgreSQL megőrizze a camelCase formát
     const createTableQuery = `
         CREATE TABLE IF NOT EXISTS users (
             "userId" VARCHAR(255) PRIMARY KEY,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            address TEXT,
-            batteryLevel REAL,
-            isCharging BOOLEAN,
-            speed REAL,
-            pluggedIn TEXT,
-            callLog JSONB,
-            lastUpdated BIGINT
+            "latitude" DOUBLE PRECISION,
+            "longitude" DOUBLE PRECISION,
+            "address" TEXT,
+            "batteryLevel" REAL,
+            "isCharging" BOOLEAN,
+            "speed" REAL,
+            "pluggedIn" TEXT,
+            "callLog" JSONB,
+            "lastUpdated" BIGINT
         );
     `;
     try {
@@ -53,17 +53,16 @@ const initializeDatabase = async () => {
         console.log('"users" tábla sikeresen létrehozva.');
     } catch (err) {
         console.error('Hiba az adatbázis inicializálásakor:', err);
-        process.exit(1);
+        process.exit(1); 
     }
 };
 
 // 5. ÚTVONALAK (VÉGPONTOK)
 
-// GET /users - Az összes felhasználó adatának lekérdezése
+// GET /users
 app.get('/users', async (req, res) => {
     try {
-        // Aliasokat használunk, hogy a JSON kimenet mezőnevei pontosan egyezzenek a Kotlin data class-szal (camelCase)
-        const result = await pool.query('SELECT "userId", latitude, longitude, address, "batteryLevel" as "batteryLevel", "isCharging" as "isCharging", speed, "pluggedIn" as "pluggedIn", "callLog" as "callLog", "lastUpdated" as "lastUpdated" FROM users');
+        const result = await pool.query('SELECT "userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated" FROM users');
         console.log(`Lekérdezés: ${result.rows.length} felhasználó adatainak elküldése.`);
         res.json(result.rows);
     } catch (err) {
@@ -72,7 +71,7 @@ app.get('/users', async (req, res) => {
     }
 });
 
-// POST /users - Felhasználó adatainak frissítése/létrehozása (UPSERT)
+// POST /users
 app.post('/users', async (req, res) => {
     const userData = req.body;
 
@@ -84,16 +83,17 @@ app.post('/users', async (req, res) => {
     const lastUpdated = Date.now();
     const callLogInJson = callLog ? JSON.stringify(callLog) : null;
 
+    // JAVÍTVA: Az ON CONFLICT részben is idézőjellel használjuk az oszlopneveket
     const upsertQuery = `
-        INSERT INTO users ("userId", latitude, longitude, address, "batteryLevel", "isCharging", speed, "pluggedIn", "callLog", "lastUpdated")
+        INSERT INTO users ("userId", "latitude", "longitude", "address", "batteryLevel", "isCharging", "speed", "pluggedIn", "callLog", "lastUpdated")
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT ("userId") DO UPDATE SET
-            latitude = EXCLUDED.latitude,
-            longitude = EXCLUDED.longitude,
-            address = EXCLUDED.address,
+            "latitude" = EXCLUDED."latitude",
+            "longitude" = EXCLUDED."longitude",
+            "address" = EXCLUDED."address",
             "batteryLevel" = EXCLUDED."batteryLevel",
             "isCharging" = EXCLUDED."isCharging",
-            speed = EXCLUDED.speed,
+            "speed" = EXCLUDED."speed",
             "pluggedIn" = EXCLUDED."pluggedIn",
             "callLog" = EXCLUDED."callLog",
             "lastUpdated" = EXCLUDED."lastUpdated";
